@@ -256,9 +256,13 @@ function packageCard(pkg) {
   );
 }
 
-// Over-budget suggestions are human-readable engine strings ("Raise the budget to at least ₹2,48,290.",
-// "Try 4 nights (from ₹1,90,000)."); these patterns turn them into form values.
+// Over-budget suggestions are human-readable engine strings (src/engine/suggest.js, e.g. "Try 3 nights instead of
+// 6: from ₹2,03,532 …", "Start on 2027-04-12 instead of …", "Go to Japan instead of …", "Fly from Mumbai (BOM)
+// instead of …", "Raise the budget to at least ₹2,48,290."); these patterns turn them into form values.
 const SUGGESTION_PATTERNS = [
+  { re: /^Start on (\d{4}-\d{2}-\d{2})/i, apply: (m) => ({ startDate: m[1] }) },
+  { re: /^Go to (.+?) instead of/i, apply: (m) => ({ country: m[1] }) },
+  { re: /^Fly from .*?\(([A-Z]{3})\) instead of/, apply: (m) => ({ departureAirport: m[1] }) },
   { re: /budget to (?:at least )?₹\s?([\d,]+)/i, apply: (m) => ({ budgetInr: Number(m[1].replace(/,/g, '')) }) },
   { re: /(\d+)\s+nights?/i, apply: (m) => ({ nights: Number(m[1]) }) },
   { re: /nights\D*?(\d+)/i, apply: (m) => ({ nights: Number(m[1]) }) },
@@ -277,6 +281,7 @@ function refillForm(changes) {
   for (const [name, value] of Object.entries(changes)) {
     form[name].value = value;
     form[name].dispatchEvent(new Event('input', { bubbles: true }));
+    form[name].dispatchEvent(new Event('change', { bubbles: true }));
     form[name].classList.add('flash');
     setTimeout(() => form[name].classList.remove('flash'), 1600);
   }
@@ -307,8 +312,10 @@ function overBudgetView(data) {
     }
     box.append(el('p', { class: 'suggest-title' }, 'Try one of these (fills in the form):'), row);
   }
-  if (data.cheapest_package_id) {
-    box.append(button('View cheapest package', 'btn btn-warn', () => openPackage(data.cheapest_package_id)));
+  // Contract: OVER_BUDGET returns [cheapest] (saved by the server, left_inr negative).
+  const cheapestId = data.packages?.[0]?.id;
+  if (cheapestId) {
+    box.append(button('View cheapest package', 'btn btn-warn', () => openPackage(cheapestId)));
   }
   return box;
 }
@@ -426,7 +433,38 @@ function cityOn(pkg, date) {
   return pkg.plan.find((p) => p.check_in <= date && date < p.check_out)?.city ?? '';
 }
 
-function eventNode(ev) {
+/** Change / remove buttons for one timeline row (none once the package is booked). */
+function eventActions(ev, pkg) {
+  if (pkg.status === 'BOOKED') return null;
+  const { item } = ev;
+  const acts = [];
+  if (item.type === 'flight') {
+    // The outbound flight leaves on or before start_date; the return flight leaves on end_date.
+    const direction = item.start < pkg.end_date ? 'outbound' : 'return';
+    acts.push(button('Change flight', 'btn btn-small', () => openOptions(
+      { kind: 'flight', direction },
+      direction === 'outbound' ? 'Change outbound flight' : 'Change return flight',
+      (o) => ({ type: 'swap_flight', direction, flight_id: o.id }),
+    )));
+  } else if (ev.kind === 'check-in') {
+    acts.push(button('Change hotel', 'btn btn-small', () => openOptions(
+      { kind: 'hotel', city: item.city },
+      `Change hotel in ${item.city}`,
+      (o) => {
+        const [hotel_id, room_id] = o.id.split('|');
+        return { type: 'swap_hotel', city: item.city, hotel_id, room_id };
+      },
+    )));
+  } else if (item.type === 'attraction') {
+    acts.push(button('Remove', 'btn btn-small btn-danger', () => sendChange(
+      { type: 'remove_attraction', item_id: item.item_id },
+      `${item.name} removed`,
+    )));
+  }
+  return acts.length ? el('div', { class: 'tl-actions' }, ...acts) : null;
+}
+
+function eventNode(ev, pkg) {
   const { item } = ev;
   let title = item.name;
   let when = ev.time ?? '';
@@ -462,6 +500,7 @@ function eventNode(ev) {
     ),
     details.length ? el('p', { class: 'tl-detail muted' }, details.join(' · ')) : null,
     ...(item.warnings ?? []).map((w) => el('p', { class: 'tl-warning' }, w)),
+    eventActions(ev, pkg),
   );
   if (item.type === 'attraction' && item.catalog_id) {
     // Catalog images are images/attractions/<attraction_id>.jpg; hide the frame if one is missing.
@@ -502,16 +541,32 @@ function renderPackage(pkg) {
     ),
   );
 
+  const editable = pkg.status !== 'BOOKED';
+  if (editable) {
+    header.append(el('div', { class: 'pkg-header-actions' }, button('Change cities', 'btn btn-secondary', () =>
+      openOptions({ kind: 'city_plan' }, 'Change cities and nights', (o) => ({
+        type: 'set_city_plan', cities: o.detail?.cities ?? parsePlanId(o.id),
+      })))));
+  }
+
   const timeline = el('ol', { class: 'timeline' });
   const start = utcDay(pkg.start_date).getTime();
   for (const [date, evs] of timelineDays(pkg)) {
     const n = Math.round((utcDay(date).getTime() - start) / 86400000) + 1;
+    // Attractions can be added on any night of the stay (start_date .. end_date − 1).
+    const city = cityOn(pkg, date);
+    const canAdd = editable && date >= pkg.start_date && date < pkg.end_date;
     timeline.append(el(
       'li',
       { class: 'tl-day' },
       el('h3', { class: 'tl-date' }, fmtDateLong(date),
-        el('span', { class: 'muted' }, ` · ${n >= 1 ? `Day ${n}` : 'Before day 1'} · ${cityOn(pkg, date)}`)),
-      el('ul', { class: 'tl-list' }, ...evs.map(eventNode)),
+        el('span', { class: 'muted' }, ` · ${n >= 1 ? `Day ${n}` : 'Before day 1'} · ${city}`)),
+      el('ul', { class: 'tl-list' }, ...evs.map((ev) => eventNode(ev, pkg))),
+      canAdd ? button('+ Add attraction', 'btn btn-small btn-add', () => openOptions(
+        { kind: 'attraction', date },
+        `Add an attraction on ${fmtDateLong(date)} (${city})`,
+        (o) => ({ type: 'add_attraction', attraction_id: o.id, date }),
+      )) : null,
     ));
   }
 
@@ -526,12 +581,156 @@ function renderPackage(pkg) {
         el('a', { href: '/images/ATTRIBUTIONS.md', target: '_blank', rel: 'noopener' }, 'Photo credits')),
     ),
   );
+  currentPkg = pkg;
   updateBar(pkg);
+}
+
+// ---------- changes: options modal + POST /change ----------
+
+let currentPkg = null;
+let changing = false;
+const noticeEl = document.getElementById('change-notice');
+const dialog = document.getElementById('options-dialog');
+
+// Backdrop click closes the modal (clicks inside land on child elements, not the dialog itself).
+dialog.addEventListener('click', (e) => { if (e.target === dialog && !changing) dialog.close(); });
+dialog.addEventListener('cancel', (e) => { if (changing) e.preventDefault(); });
+
+const fmtDelta = (n) => (n > 0 ? `+${inr(n)}` : n < 0 ? `−${inr(-n)}` : `±${inr(0)}`);
+
+/** city_plan option id fallback: "Tokyo:3|Kyoto:3" → [{ city, nights }]. */
+function parsePlanId(id) {
+  return String(id).split('|').map((part) => {
+    const i = part.lastIndexOf(':');
+    return { city: part.slice(0, i), nights: Number(part.slice(i + 1)) };
+  });
+}
+
+/** One display line from the free-form option detail (only fields we recognise). */
+function optionInfo(d = {}) {
+  const bits = [];
+  if (d.stars != null) bits.push(`${d.stars} ★`);
+  if (d.area) bits.push(d.area);
+  if (d.date) bits.push(fmtDateShort(d.date));
+  if (d.start && d.end) bits.push(`${timeOf(d.start) ?? d.start} – ${timeOf(d.end) ?? d.end}`);
+  if (d.duration_minutes != null) bits.push(hm(d.duration_minutes));
+  return bits.join(' · ');
+}
+
+function optionNode(o, makeChange, successText) {
+  const current = o.detail?.current === true;
+  const delta = Number(o.price_delta_inr) || 0;
+  const info = optionInfo(o.detail);
+  const b = el(
+    'button',
+    { type: 'button', class: `opt${o.valid ? '' : ' opt-invalid'}${current ? ' opt-current' : ''}` },
+    el(
+      'span',
+      { class: 'opt-main' },
+      el('strong', { class: 'opt-label' }, o.label),
+      info ? el('span', { class: 'opt-info muted' }, info) : null,
+      !o.valid && o.reason ? el('span', { class: 'opt-reason' }, o.reason) : null,
+    ),
+    el(
+      'span',
+      { class: `opt-delta ${delta > 0 ? 'delta-up' : delta < 0 ? 'delta-down' : ''}` },
+      current ? 'Current' : fmtDelta(delta),
+    ),
+  );
+  b.disabled = !o.valid || current;
+  if (!o.valid) b.setAttribute('aria-label', `${o.label}. Not available: ${o.reason ?? 'not valid'}`);
+  b.addEventListener('click', () => sendChange(makeChange(o), `${successText}: ${o.label}`));
+  return b;
+}
+
+/** Opens the modal and fills it from GET /api/packages/:id/options?<query>. */
+async function openOptions(query, title, makeChange) {
+  const pkg = currentPkg;
+  if (!pkg || changing) return;
+  const list = el('div', { class: 'opt-list' }, el('p', { class: 'muted' }, 'Loading options…'));
+  dialog.replaceChildren(
+    el(
+      'div',
+      { class: 'modal-head' },
+      el('h2', { id: 'modal-title' }, title),
+      button('✕', 'btn btn-icon modal-close', () => dialog.close()),
+    ),
+    el('p', { class: 'muted modal-sub' }, 'Prices are the change to your package total.'),
+    list,
+  );
+  dialog.showModal();
+  try {
+    const res = await fetch(`/api/packages/${encodeURIComponent(pkg.id)}/options?${new URLSearchParams(query)}`);
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !Array.isArray(data)) throw new Error(data?.error || `HTTP ${res.status}`);
+    if (!dialog.open || currentPkg !== pkg) return;
+    const shortTitle = title.split(' (')[0];
+    list.replaceChildren(...(data.length
+      ? data.map((o) => optionNode(o, makeChange, shortTitle))
+      : [el('p', { class: 'muted' }, 'No options available.')]));
+  } catch (err) {
+    if (dialog.open) list.replaceChildren(banner('error', 'Could not load the options.', [err.message]));
+  }
+}
+
+function showNotice(node) {
+  noticeEl.replaceChildren();
+  if (!node) return;
+  node.append(button('✕', 'btn btn-icon notice-close', () => showNotice(null)));
+  noticeEl.append(node);
+}
+
+/** POST a change; ok → re-render package + bar and show warnings; refused → reasons, old package kept. */
+async function sendChange(change, successText) {
+  const pkg = currentPkg;
+  if (!pkg || changing) return;
+  changing = true;
+  dialog.setAttribute('aria-busy', 'true');
+  pkgView.classList.add('busy');
+  for (const b of dialog.querySelectorAll('button')) b.disabled = true;
+  try {
+    const res = await fetch(`/api/packages/${encodeURIComponent(pkg.id)}/change`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(change),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.package) throw new Error(data?.error || `HTTP ${res.status}`);
+    if (currentPkg !== pkg) return; // user left this package meanwhile
+    dialog.close();
+    renderPackage(data.package); // refused → the unchanged package, so the view and bar stay as they were
+    if (data.ok) {
+      const p = data.package;
+      const over = p.total_inr - p.budget_inr;
+      const lines = [...(data.warnings ?? [])];
+      if (over > 0) lines.push(`Your package is now ${inr(over)} over budget.`);
+      showNotice(banner(over > 0 ? 'warn' : 'ok', `${successText} (${fmtDelta(data.delta_inr ?? 0)})`, lines));
+    } else {
+      showNotice(banner('error', 'Change not made. Your package is unchanged.',
+        data.reasons?.length ? data.reasons : ['The change was refused.']));
+    }
+  } catch (err) {
+    if (currentPkg !== pkg) return;
+    dialog.close();
+    showNotice(banner('error', 'Could not apply the change. Your package is unchanged.', [err.message]));
+  } finally {
+    changing = false;
+    dialog.removeAttribute('aria-busy');
+    pkgView.classList.remove('busy');
+  }
 }
 
 // ---------- views + URL (?package=<id> restores the package view after a refresh) ----------
 
+/** Forget the package being edited: close the modal, drop the change notice. */
+function leavePackage() {
+  currentPkg = null;
+  if (dialog.open) dialog.close();
+  showNotice(null);
+}
+
 function showFormView() {
+  leavePackage();
   pkgView.hidden = true;
   bar.hidden = true;
   form.hidden = false;
@@ -542,6 +741,7 @@ let loadSeq = 0;
 
 async function loadPackageView(id) {
   const seq = ++loadSeq;
+  leavePackage();
   form.hidden = true;
   resultEl.hidden = true;
   bar.hidden = true;

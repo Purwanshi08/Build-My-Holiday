@@ -90,6 +90,7 @@
   </main>
 
   <footer id="budget-bar" class="budget-bar" hidden>
+    <div id="change-notice" class="change-notice" aria-live="polite"></div>
     <div class="budget-bar-inner">
       <dl class="bar-stats">
         <div><dt>Total</dt><dd id="bar-total">—</dd></div>
@@ -99,6 +100,8 @@
       <a id="export-btn" class="btn btn-primary btn-export" href="#">Export JSON</a>
     </div>
   </footer>
+
+  <dialog id="options-dialog" class="modal" aria-labelledby="modal-title"></dialog>
 
   <template id="child-row">
     <li class="child-row">
