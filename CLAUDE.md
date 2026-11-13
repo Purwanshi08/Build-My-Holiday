@@ -13,12 +13,14 @@ from the hackathon catalog. Read `problem-1-holiday-package.md`, `DATA_DICTIONAR
 5. **Money is integer INR.** No floats for money; round only where the rules say so (e.g. vehicles = ceil).
 6. **Every file starts with a 2-line comment saying what it does.** (JSON files cannot have comments — exempt; Markdown uses an HTML comment or a heading line.)
 7. **Ownership:**
-   - **Person A** owns `src/engine/` and `test/`.
-   - **Person B** owns `src/server.js`, `src/db.js`, `public/` and the root `README.md`.
+   - **Person A** owns `src/engine/` **except** `src/engine/validate.js` and `src/engine/export.js`, plus all of
+     `test/` **except** `test/validate.test.js`.
+   - **Person B** owns `src/engine/validate.js`, `src/engine/export.js`, `test/validate.test.js`, `src/server.js`,
+     `src/db.js`, `public/` and the root `README.md`.
    - Never edit the other person's files. Talk through `docs/CONTRACT.md`; contract changes are agreed by both.
 8. **Don't ask questions — decide, and record the decision in `docs/DECISIONS.md`** (date, decision, why).
 
 ## Commands
 
-- `npm install` then `npm start` → http://localhost:3000
+- `npm install` then `npm start` → http://localhost:3000 (`npm run dev` restarts on file changes)
 - `npm test` → `node --test`

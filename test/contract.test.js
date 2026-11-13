@@ -75,3 +75,40 @@ test('OVER_BUDGET, NO_PACKAGE and INVALID_REQUEST', () => {
   assert.equal(bad.status, 'INVALID_REQUEST');
   assert.ok(bad.errors.adults);
 });
+
+test('dates outside the data window give NO_PACKAGE, not INVALID_REQUEST', () => {
+  const cases = [
+    { startDate: '2027-03-31' },            // starts before window
+    { startDate: '2027-05-02' },            // starts after window
+    { startDate: '2026-12-25' },            // valid date, wrong year
+    { startDate: '2027-04-15', nights: 6 }, // return 2027-04-21
+    { startDate: '2027-04-20', nights: 3 }, // starts on last day, no nights possible
+  ];
+  for (const c of cases) {
+    const r = engine.buildPackages({ ...MENON, ...c });
+    assert.equal(r.status, 'NO_PACKAGE', JSON.stringify(c));
+    assert.match(r.reasons[0], /only available from 1 to 20 April 2027/);
+    assert.deepEqual(r.errors, {});
+  }
+  // Edge: return exactly on 2027-04-20 is inside the window.
+  assert.equal(engine.buildPackages({ ...MENON, startDate: '2027-04-14', nights: 6 }).status, 'OK');
+  assert.equal(engine.buildPackages({ ...MENON, startDate: '2027-04-01', nights: 3 }).status, 'OK');
+});
+
+test('INVALID_REQUEST only for malformed or out-of-range fields', () => {
+  const bad = {
+    missing: (() => { const { budgetInr, ...rest } = MENON; return rest; })(),
+    nights: { ...MENON, nights: 11 },
+    childAges: { ...MENON, childAges: [-1] },
+    adults: { ...MENON, adults: 0 },
+    budget: { ...MENON, budgetInr: 0 },
+    city: { ...MENON, departureAirport: 'XXX' },
+    country: { ...MENON, country: 'France' },
+    date: { ...MENON, startDate: 'next friday' },
+  };
+  for (const [name, req] of Object.entries(bad)) {
+    const r = engine.buildPackages(req);
+    assert.equal(r.status, 'INVALID_REQUEST', name);
+    assert.equal(Object.keys(r.errors).length, 1, name);
+  }
+});

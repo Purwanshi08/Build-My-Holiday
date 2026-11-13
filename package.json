@@ -9,7 +9,8 @@
   },
   "scripts": {
     "start": "node src/server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "dev": "node --watch src/server.js"
   },
   "dependencies": {
     "better-sqlite3": "11.10.0",
