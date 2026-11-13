@@ -27,12 +27,12 @@ try {
 const STRATEGIES = ['cheap', 'quick', 'rated'];
 const TYPE_ORDER = { flight: 0, transfer: 1, hotel: 2, attraction: 3 };
 const inr = (n) => `₹${n.toLocaleString('en-IN')}`;
-const local = (catalogDateTime) => catalogDateTime.slice(0, 16);
+export const local = (catalogDateTime) => catalogDateTime.slice(0, 16);
 const byPriceThen = (x, y) => x.price - y.price || x.duration - y.duration || x.id.localeCompare(y.id);
 
-// ---- per-request context ---------------------------------------------------------------------------
+// ---- per-request context (also used by change.js) --------------------------------------------------
 
-function makeContext(req, ctx) {
+export function makeContext(req, ctx) {
   const adults = req.adults;
   const children = req.childAges.length;
   return {
@@ -51,7 +51,7 @@ function memo(c, key, fn) {
 // ---- layers ----------------------------------------------------------------------------------------
 
 /** Hotel + room type options in a city for nights checkIn … checkIn+nights−1 (k rooms, availability − ctx). */
-function hotelOptions(c, city, checkIn, nights) {
+export function hotelOptions(c, city, checkIn, nights) {
   return memo(c, `H|${city}|${checkIn}|${nights}`, () => {
     const out = [];
     const nightDates = Array.from({ length: nights }, (_, i) => addDays(checkIn, i));
@@ -69,7 +69,7 @@ function hotelOptions(c, city, checkIn, nights) {
 }
 
 /** Cheapest airport transfer for a hotel ('arrive' after landing / 'depart' before departure), or null. */
-function airportLeg(c, dir, airport, hotel, flightTime) {
+export function airportLeg(c, dir, airport, hotel, flightTime) {
   return memo(c, `A|${dir}|${airport}|${hotel.city}|${hotel.area}|${flightTime}`, () => {
     const legs = [];
     for (const t of airportTransfers(airport, hotel.city, hotel.area)) {
@@ -94,8 +94,29 @@ function intercityLeg(c, from, to, date, strategy) {
 
 // ---- one candidate ---------------------------------------------------------------------------------
 
+/**
+ * Days that may hold attractions: full days (every night after a stay's first) plus the arrival day and each
+ * change day when the traveler reaches the city that same date (optional, `earliest` = arrival + gap).
+ * The last day is never included. Returns [{ date, city, full, earliest? }] in date order.
+ */
+export function attractionDays(stays, moves) {
+  const days = [];
+  for (const [i, s] of stays.entries()) {
+    const reached = i === 0 ? s.arrive.end : moves[i - 1].end;
+    for (let n = 0; n < s.nights; n++) {
+      const date = addDays(s.checkIn, n);
+      if (n > 0) {
+        days.push({ date, city: s.city, full: true });
+      } else if (reached.slice(0, 10) === date) {
+        days.push({ date, city: s.city, full: false, earliest: toMinutes(reached.slice(11, 16)) + GAP_MINUTES });
+      }
+    }
+  }
+  return days;
+}
+
 /** Build one package for (plan, flight pair, strategy) or return { fail: { stage, reason } }. */
-function buildCandidate(c, plan, { out, ret }, strategy) {
+export function buildCandidate(c, plan, { out, ret }, strategy) {
   const landing = local(out.arrival_local);
   const departure = local(ret.departure_local);
   const last = plan.length - 1;
@@ -135,19 +156,7 @@ function buildCandidate(c, plan, { out, ret }, strategy) {
     moves.push(leg);
   }
 
-  // Attraction days: arrival day and change days are optional (after reaching the city), last day none.
-  const days = [];
-  for (const [i, s] of stays.entries()) {
-    const reached = i === 0 ? s.arrive.end : moves[i - 1].end;
-    for (let n = 0; n < s.nights; n++) {
-      const date = addDays(s.checkIn, n);
-      if (n > 0) {
-        days.push({ date, city: s.city, full: true });
-      } else if (reached.slice(0, 10) === date) {
-        days.push({ date, city: s.city, full: false, earliest: toMinutes(reached.slice(11, 16)) + GAP_MINUTES });
-      }
-    }
-  }
+  const days = attractionDays(stays, moves);
   const { visits, failedDate } = planAttractions(days, c.adults, c.children);
   if (failedDate) {
     const city = days.find((d) => d.date === failedDate).city;
@@ -181,7 +190,7 @@ function flightItem(c, f, city) {
   }, local(f.departure_local));
 }
 
-function assemble(c, plan, out, ret, stays, moves, visits) {
+export function assemble(c, plan, out, ret, stays, moves, visits) {
   const first = stays[0];
   const lastStay = stays.at(-1);
   const items = [

@@ -73,7 +73,7 @@ export function fitVisit(attraction, cursor, latest) {
 }
 
 /** Attractions open in the day's city that day, cheapest first (then shorter, then id). Never Nara. */
-function optionsFor(day, adults, children) {
+export function optionsFor(day, adults, children) {
   return attractionsInCity(day.city)
     .filter((a) => a.city !== 'Nara' && openOn(a, day.date))
     .map((a) => ({ a, price: attractionPrice(a, adults, children) }))

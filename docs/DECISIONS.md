@@ -113,3 +113,29 @@
   and say how far over each one still is. "Raise the budget to at least ₹X" is used only when no variation can be
   built. Suggestions run only the _cheap_ strategy (it always holds the cheapest total). Menon at ₹1,50,000
   takes ~0.5 s.
+- **2026-11-13 — `applyChange` / `getOptions` (`src/engine/change.js`, `src/engine/parts.js`).** A change turns
+  the package back into the builder's pieces (`decompose`), edits them, fixes what depends on them, reassembles
+  (`recompose`), and must pass `validatePackage`; any failed travel rule → `ok:false` with the reason and the
+  *same* input object. The input is never mutated. Going over budget is not a refusal: `ok:true` plus a warning.
+  Ids: the package keeps `id`/`trip_id`/`label`/`status`; each item keeps its `item_id` when the same catalog
+  record (and room) is still in the package; new items get ids after the highest (`i18`, `i19`, …).
+- **2026-11-13 — Knock-on fixes after a change.** Airport transfers: keep the current one when it still serves
+  the airport and the hotel's area (re-timed if needed), otherwise switch to the cheapest one that fits; warn
+  either way. Attractions: a visit keeps its time when it still fits, is pushed later on the same day (never
+  earlier) when the traveler now arrives later, and is dropped when it cannot fit or the night's city changed;
+  a full day left empty gets the cheapest visit that fits. Each fix is named in `warnings`.
+- **2026-11-13 — Change rules.** `add_attraction`: the night's city, open that weekday and date, not already in
+  the package, at most 2 on a full day; placed in the earliest free slot from 09:00 (or arrival + 30 min) inside
+  its opening hours, keeping 30 min from other visits when possible (only no overlap otherwise).
+  `remove_attraction`: refused for the last visit of a full day. `swap_flight`: same-day flight from/to home at an
+  airport serving the first/last city with enough free seats. `set_city_plan`: must be one of `cityPlans`; it is
+  rebuilt with the *cheap* strategy, keeping the current flights when they fit the plan, else the cheapest
+  pair; hotels, transfers and attractions are chosen again (warned).
+- **2026-11-13 — `getOptions` prices each option by applying it.** `price_delta_inr` = the real `delta_inr` of
+  that change, so it includes knock-on costs (e.g. a cheaper hotel whose airport taxi costs more shows ₹0).
+  Invalid options carry `price_delta_inr: null` and the refusal `reason`. Hotel: every room type of every hotel
+  in the city. Flight: every same-day flight to/from airports serving the first/last city. Attraction: every
+  attraction in that night's city. City plan: every legal plan (current one at ₹0). Valid first, then cheapest.
+  `detail` has display data plus `current`, and for valid options `total_inr`, `over_budget` and `warnings`.
+- **2026-11-13 — `checkRules` moved to `test/rules.js`.** Importing it from `build.test.js` re-ran that file's
+  tests inside other test files.
