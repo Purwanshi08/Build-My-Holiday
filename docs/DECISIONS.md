@@ -214,3 +214,11 @@
 - **2026-11-13 — Root `README.md`** has the start commands, architecture, our city rule, the feature status (M1–M8,
   G1–G4, S1–S2) and known limitations. `docs/README.md` stays the data pack's own guide.
 >>>>>>> 77bd22167c41b60b5b605b8902ef8f6446b9f582
+- **2026-11-14 — Optional no-stay packages (`includeStay: false`).** The request may skip hotels; the package keeps
+  flights, both airport transfers, intercity transfers and attractions. `plan` keeps the city/nights route with
+  `hotel_id`/`room_id`/`rooms` null, and `metrics.avg_stars` is `null`. Airport transfers then match the city only,
+  because there is no hotel area (catalog areas are used as drop-off points). `best_rated` is omitted (no stars to
+  rank). `validatePackage` skips the hotel checks only when a package has zero hotel items, and derives the route
+  from the airport/intercity transfers; `swap_hotel` and hotel options are refused/empty. Why: the traveler may have
+  their own accommodation. This is an app feature, not a judged package: problem §4 requires a hotel every night, so
+  the judges' checker will not accept a no-stay export.

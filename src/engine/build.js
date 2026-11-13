@@ -2,7 +2,8 @@
 // attractions layer by layer (cheap / quick / rated), builds trip-format packages and returns the best ones.
 import { randomUUID } from 'node:crypto';
 import {
-  destinations, hotelsInCity, roomsOfHotel, roomsLeft, airportTransfers, intercityTransfers,
+  destinations, hotelsInCity, roomsOfHotel, roomsLeft, airportTransfers, airportTransfersToCity,
+  intercityTransfers,
 } from './catalog.js';
 import { addDays, toMinutes } from './time.js';
 import {
@@ -37,6 +38,7 @@ export function makeContext(req, ctx) {
   const children = req.childAges.length;
   return {
     req, ctx, adults, children, travelers: adults + children,
+    stay: req.includeStay !== false,
     end: addDays(req.startDate, req.nights),
     homeCity: destinations.departure_cities.find((d) => d.airport === req.departureAirport).city,
     memo: new Map(),
@@ -68,18 +70,28 @@ export function hotelOptions(c, city, checkIn, nights) {
   });
 }
 
+/** Cheapest fitting transfer from `transfers` ('arrive' after landing / 'depart' before departure), or null. */
+function bestAirportLeg(c, dir, transfers, flightTime) {
+  const legs = [];
+  for (const t of transfers) {
+    const time = dir === 'arrive' ? arrivalPickup(t, flightTime) : departurePickup(t, flightTime);
+    if (!time) continue;
+    legs.push({ t, ...time, id: t.transfer_id, duration: t.duration_minutes,
+      price: transferPrice(t, c.adults, c.children) });
+  }
+  return legs.sort(byPriceThen)[0] ?? null;
+}
+
 /** Cheapest airport transfer for a hotel ('arrive' after landing / 'depart' before departure), or null. */
 export function airportLeg(c, dir, airport, hotel, flightTime) {
-  return memo(c, `A|${dir}|${airport}|${hotel.city}|${hotel.area}|${flightTime}`, () => {
-    const legs = [];
-    for (const t of airportTransfers(airport, hotel.city, hotel.area)) {
-      const time = dir === 'arrive' ? arrivalPickup(t, flightTime) : departurePickup(t, flightTime);
-      if (!time) continue;
-      legs.push({ t, ...time, id: t.transfer_id, duration: t.duration_minutes,
-        price: transferPrice(t, c.adults, c.children) });
-    }
-    return legs.sort(byPriceThen)[0] ?? null;
-  });
+  return memo(c, `A|${dir}|${airport}|${hotel.city}|${hotel.area}|${flightTime}`, () =>
+    bestAirportLeg(c, dir, airportTransfers(airport, hotel.city, hotel.area), flightTime));
+}
+
+/** Cheapest airport transfer into/out of a city, whatever area, when the traveler has no hotel there. */
+export function cityAirportLeg(c, dir, airport, city, flightTime) {
+  return memo(c, `AC|${dir}|${airport}|${city}|${flightTime}`, () =>
+    bestAirportLeg(c, dir, airportTransfersToCity(airport, city), flightTime));
 }
 
 /** Intercity transfer on a change day: cheapest (cheap/rated) or shortest (quick). */
@@ -123,30 +135,49 @@ export function buildCandidate(c, plan, { out, ret }, strategy) {
   const stays = [];
   let checkIn = c.req.startDate;
   for (const [i, { city, nights }] of plan.entries()) {
-    const options = hotelOptions(c, city, checkIn, nights);
-    if (options.length === 0) {
-      const who = `${c.adults} adult(s)${c.children ? ` + ${c.children} child(ren)` : ''}`;
-      return { fail: { stage: 2, reason: `No hotel room for ${who} in ${city} on every night from ${checkIn}.` } };
+    const stay = {
+      city, nights, checkIn, checkOut: addDays(checkIn, nights),
+      hotel: null, room: null, k: 0, price: 0, arrive: null, depart: null,
+    };
+    if (c.stay) {
+      const options = hotelOptions(c, city, checkIn, nights);
+      if (options.length === 0) {
+        const who = `${c.adults} adult(s)${c.children ? ` + ${c.children} child(ren)` : ''}`;
+        return { fail: { stage: 2, reason: `No hotel room for ${who} in ${city} on every night from ${checkIn}.` } };
+      }
+      let best = null;
+      for (const o of options) {
+        const arrive = i === 0 ? airportLeg(c, 'arrive', out.to, o.hotel, landing) : null;
+        const depart = i === last ? airportLeg(c, 'depart', ret.from, o.hotel, departure) : null;
+        if ((i === 0 && !arrive) || (i === last && !depart)) continue;
+        const cost = o.price + (arrive?.price ?? 0) + (depart?.price ?? 0);
+        const cand = { ...o, arrive, depart, cost };
+        const better = !best ||
+          (strategy === 'rated' && cand.hotel.stars !== best.hotel.stars
+            ? cand.hotel.stars > best.hotel.stars
+            : cost < best.cost || (cost === best.cost && o.room.room_id < best.room.room_id));
+        if (better) best = cand;
+      }
+      if (!best) {
+        return { fail: { stage: 3, reason: `No airport transfer in ${city} fits the flight times (pickup ≥ 60 min after ` +
+          'landing, at the airport ≥ 180 min before departure, inside service hours).' } };
+      }
+      Object.assign(stay, best);
     }
-    let best = null;
-    for (const o of options) {
-      const arrive = i === 0 ? airportLeg(c, 'arrive', out.to, o.hotel, landing) : null;
-      const depart = i === last ? airportLeg(c, 'depart', ret.from, o.hotel, departure) : null;
-      if ((i === 0 && !arrive) || (i === last && !depart)) continue;
-      const cost = o.price + (arrive?.price ?? 0) + (depart?.price ?? 0);
-      const cand = { ...o, arrive, depart, cost };
-      const better = !best ||
-        (strategy === 'rated' && cand.hotel.stars !== best.hotel.stars
-          ? cand.hotel.stars > best.hotel.stars
-          : cost < best.cost || (cost === best.cost && o.room.room_id < best.room.room_id));
-      if (better) best = cand;
-    }
-    if (!best) {
-      return { fail: { stage: 3, reason: `No airport transfer in ${city} fits the flight times (pickup ≥ 60 min after ` +
-        'landing, at the airport ≥ 180 min before departure, inside service hours).' } };
-    }
-    stays.push({ city, nights, checkIn, checkOut: addDays(checkIn, nights), ...best });
+    stays.push(stay);
     checkIn = addDays(checkIn, nights);
+  }
+
+  if (!c.stay) {
+    const arrive = cityAirportLeg(c, 'arrive', out.to, stays[0].city, landing);
+    const depart = cityAirportLeg(c, 'depart', ret.from, stays.at(-1).city, departure);
+    if (!arrive || !depart) {
+      const city = !arrive ? stays[0].city : stays.at(-1).city;
+      return { fail: { stage: 3, reason: `No airport transfer in ${city} fits the flight times (pickup ≥ 60 min ` +
+        'after landing, at the airport ≥ 180 min before departure, inside service hours).' } };
+    }
+    stays[0].arrive = arrive;
+    stays.at(-1).depart = depart;
   }
 
   const moves = [];
@@ -193,14 +224,14 @@ function flightItem(c, f, city) {
 export function assemble(c, plan, out, ret, stays, moves, visits) {
   const first = stays[0];
   const lastStay = stays.at(-1);
-  const timing = stayTimes(stays, moves); // G1: early check-in / late check-out notes go on the hotel items
+  const timing = c.stay ? stayTimes(stays, moves) : null; // G1: early check-in / late check-out notes
   const items = [
     flightItem(c, out, first.city),
     transferItem(c, first.arrive, first.city),
-    ...stays.map((s, i) => item('hotel', {
+    ...(c.stay ? stays.map((s, i) => item('hotel', {
       name: s.hotel.name, city: s.city, catalog_id: s.hotel.hotel_id, room_id: s.room.room_id,
       start: s.checkIn, end: s.checkOut, quantity: s.k, price_inr: s.price, warnings: stayTimeText(timing[i]),
-    }, i === 0 ? first.arrive.end : moves[i - 1].end)),
+    }, i === 0 ? first.arrive.end : moves[i - 1].end)) : []),
     ...moves.map((m) => transferItem(c, m, m.t.to_city)),
     ...visits.map((v) => item('attraction', {
       name: v.attraction.name, city: v.attraction.city, catalog_id: v.attraction.attraction_id,
@@ -216,7 +247,7 @@ export function assemble(c, plan, out, ret, stays, moves, visits) {
   });
 
   const total = items.reduce((t, it) => t + it.price_inr, 0);
-  const starNights = stays.reduce((t, s) => t + s.hotel.stars * s.nights, 0);
+  const starNights = c.stay ? stays.reduce((t, s) => t + s.hotel.stars * s.nights, 0) : 0;
   const id = `pkg-${randomUUID()}`;
   return {
     id, label: null, trip_id: id,
@@ -228,11 +259,11 @@ export function assemble(c, plan, out, ret, stays, moves, visits) {
     total_inr: total, left_inr: c.req.budgetInr - total, status: 'PLANNED',
     metrics: {
       travel_minutes: out.duration_minutes + ret.duration_minutes + moves.reduce((t, m) => t + m.duration, 0),
-      avg_stars: Math.round((starNights / c.req.nights) * 100) / 100,
+      avg_stars: c.stay ? Math.round((starNights / c.req.nights) * 100) / 100 : null,
     },
     plan: stays.map((s) => ({
       city: s.city, nights: s.nights, check_in: s.checkIn, check_out: s.checkOut,
-      hotel_id: s.hotel.hotel_id, room_id: s.room.room_id, rooms: s.k,
+      hotel_id: s.hotel?.hotel_id ?? null, room_id: s.room?.room_id ?? null, rooms: s.k,
     })),
     items,
   };
@@ -261,7 +292,7 @@ export function searchCandidates(req, ctx, strategies = STRATEGIES) {
       continue;
     }
     for (const pair of pairs) {
-      for (const strategy of strategies) {
+      for (const strategy of c.stay ? strategies : strategies.filter((s) => s !== 'rated')) {
         const r = buildCandidate(c, plan, pair, strategy);
         if (r.pkg) packages.push(r.pkg);
         else fail(r.fail);
@@ -307,7 +338,8 @@ const result = (o) => ({
 
 const byTotal = (a, b) => a.total_inr - b.total_inr;
 const byTravel = (a, b) => a.metrics.travel_minutes - b.metrics.travel_minutes || a.total_inr - b.total_inr;
-const byStars = (a, b) => b.metrics.avg_stars - a.metrics.avg_stars || a.total_inr - b.total_inr;
+const byStars = (a, b) =>
+  (b.metrics.avg_stars ?? 0) - (a.metrics.avg_stars ?? 0) || a.total_inr - b.total_inr;
 
 /** Lowest-total valid package for a valid, in-window request, or null. Used for over-budget suggestions. */
 export function cheapestTotal(req, ctx) {

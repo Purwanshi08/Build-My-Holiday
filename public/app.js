@@ -166,6 +166,7 @@ function readForm() {
       adults: Number(form.adults.value),
       childAges: childInputs.map((i) => Number(i.value)),
       budgetInr: Number(form.budgetInr.value),
+      includeStay: form.includeStay.checked,
     },
   };
 }
@@ -227,14 +228,20 @@ function banner(kind, title, lines = []) {
 }
 
 const hm = (minutes) => `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m`;
-/** Average hotel stars as "3.00 ★" (metrics.avg_stars is a number rounded to 2 decimals). */
-const stars = (n) => `${Number(n).toFixed(2)} ★`;
+/** Average hotel stars as "3.00 ★" (null when the package has no hotel). */
+const stars = (n) => (n == null ? 'No hotel' : `${Number(n).toFixed(2)} ★`);
 const plural = (n, word, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
 
 function button(label, cls, onClick) {
   const b = el('button', { type: 'button', class: cls }, label);
   b.addEventListener('click', onClick);
   return b;
+}
+
+function stayStat(pkg) {
+  return pkg.metrics.avg_stars == null
+    ? el('div', {}, el('dt', {}, 'Stay'), el('dd', {}, 'Own stay'))
+    : el('div', {}, el('dt', {}, 'Average hotel stars'), el('dd', {}, stars(pkg.metrics.avg_stars)));
 }
 
 function packageCard(pkg) {
@@ -252,7 +259,7 @@ function packageCard(pkg) {
       el('div', {}, el('dt', {}, 'Total'), el('dd', { class: 'pkg-total' }, inr(pkg.total_inr))),
       el('div', {}, el('dt', {}, 'Budget left'), el('dd', { class: 'money-ok' }, inr(pkg.left_inr))),
       el('div', {}, el('dt', {}, 'Travel time'), el('dd', {}, hm(pkg.metrics.travel_minutes))),
-      el('div', {}, el('dt', {}, 'Average hotel stars'), el('dd', {}, stars(pkg.metrics.avg_stars))),
+      stayStat(pkg),
     ),
     button('View package', 'btn btn-primary btn-view', () => openPackage(pkg.id)),
   );
@@ -552,6 +559,9 @@ function renderPackage(pkg, reservation = null) {
     reservation ? el('p', { class: 'res-kicker' }, 'Reservation summary') : null,
     el('h2', {}, `${pkg.country}: ${cities}`),
     el('p', { class: 'muted' }, `${fmtDateLong(pkg.start_date)} to ${fmtDateLong(pkg.end_date)} · ${people}`),
+    pkg.metrics.avg_stars == null
+      ? el('p', { class: 'muted' }, 'No hotel included — you arrange your own stay.')
+      : null,
     ref ? el(
       'p',
       { class: 'res-line' },
@@ -564,7 +574,7 @@ function renderPackage(pkg, reservation = null) {
       'dl',
       { class: 'pkg-stats' },
       el('div', {}, el('dt', {}, 'Travel time'), el('dd', {}, hm(pkg.metrics.travel_minutes))),
-      el('div', {}, el('dt', {}, 'Average hotel stars'), el('dd', {}, stars(pkg.metrics.avg_stars))),
+      stayStat(pkg),
     ),
   );
 
