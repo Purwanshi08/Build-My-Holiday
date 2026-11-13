@@ -1,0 +1,100 @@
+<!-- Build My Holiday: request form page (departure, country, dates, travelers, budget) and build result area. -->
+<!-- Plain HTML, no build step; behaviour lives in app.js and styling in styles.css. -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Build My Holiday</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <h1>Build My Holiday</h1>
+    <p class="tagline">Flights, hotels, transfers and sights in one package, within your budget.</p>
+  </header>
+
+  <main class="container">
+    <form id="request-form" class="card" novalidate>
+      <h2>Plan your trip</h2>
+      <p id="meta-error" class="banner banner-error" hidden></p>
+
+      <div class="grid two">
+        <div class="field" data-field="departureAirport">
+          <label for="departureAirport">Departure city</label>
+          <select id="departureAirport" name="departureAirport" required>
+            <option value="">Loading…</option>
+          </select>
+          <p class="field-error" aria-live="polite"></p>
+        </div>
+
+        <div class="field" data-field="country">
+          <label for="country">Destination country</label>
+          <select id="country" name="country" required>
+            <option value="">Loading…</option>
+          </select>
+          <p class="field-hint" id="country-cities"></p>
+          <p class="field-error" aria-live="polite"></p>
+        </div>
+      </div>
+
+      <div class="grid two">
+        <div class="field" data-field="startDate">
+          <label for="startDate">Start date <span class="muted">(arrival day)</span></label>
+          <input id="startDate" name="startDate" type="date" value="2027-04-10" required>
+          <p class="field-hint">Flights and rooms are available 1–20 April 2027.</p>
+          <p class="field-error" aria-live="polite"></p>
+        </div>
+
+        <div class="field" data-field="nights">
+          <label for="nights">Nights</label>
+          <input id="nights" name="nights" type="number" inputmode="numeric" min="3" max="10" step="1" value="6" required>
+          <p class="field-hint" id="nights-hint">3 to 10 nights.</p>
+          <p class="field-error" aria-live="polite"></p>
+        </div>
+      </div>
+
+      <div class="grid two">
+        <div class="field" data-field="adults">
+          <label for="adults">Adults</label>
+          <input id="adults" name="adults" type="number" inputmode="numeric" min="1" step="1" value="2" required>
+          <p class="field-error" aria-live="polite"></p>
+        </div>
+
+        <div class="field" data-field="budgetInr">
+          <label for="budgetInr">Budget (₹ INR, total)</label>
+          <input id="budgetInr" name="budgetInr" type="number" inputmode="numeric" min="1" step="1" value="350000" required>
+          <p class="field-hint" id="budget-hint"></p>
+          <p class="field-error" aria-live="polite"></p>
+        </div>
+      </div>
+
+      <fieldset class="field children" data-field="childAges">
+        <legend>Children <span class="muted">(age on travel date, 0–17)</span></legend>
+        <ul id="child-list" class="child-list"></ul>
+        <button type="button" id="add-child" class="btn btn-secondary">+ Add child</button>
+        <p class="field-error" aria-live="polite"></p>
+      </fieldset>
+
+      <div class="actions">
+        <button type="submit" id="submit" class="btn btn-primary">
+          <span class="spinner" aria-hidden="true"></span>
+          <span class="btn-label">Build my holiday</span>
+        </button>
+      </div>
+    </form>
+
+    <section id="result" class="result" aria-live="polite" hidden></section>
+  </main>
+
+  <template id="child-row">
+    <li class="child-row">
+      <label class="child-label"></label>
+      <input type="number" inputmode="numeric" min="0" max="17" step="1" class="child-age" required>
+      <button type="button" class="btn btn-icon remove-child" aria-label="Remove child">✕</button>
+    </li>
+  </template>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
