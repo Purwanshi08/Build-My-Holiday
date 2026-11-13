@@ -388,8 +388,12 @@ function updateBar(pkg) {
   box.classList.toggle('money-ok', left >= 0);
   box.classList.toggle('money-over', left < 0);
   document.getElementById('export-btn').href = `/api/packages/${encodeURIComponent(pkg.id)}/export`;
+  document.getElementById('confirm-btn').hidden = pkg.status === 'BOOKED';
   bar.hidden = false;
 }
+
+/** The booking reference of a booked package (every item carries the same one), or null. */
+const referenceOf = (pkg) => pkg.items.find((it) => it.booking?.reference)?.booking.reference ?? null;
 
 /**
  * Timeline days from package.items, keyed by local date. One event per item on its start date, except hotels,
@@ -516,8 +520,10 @@ function eventNode(ev, pkg) {
   return el('li', { class: `tl-item tl-item-${ev.kind}` }, el('span', { class: 'tl-time' }, when), body);
 }
 
-function renderPackage(pkg) {
+/** `reservation` (optional) = { reference, created_at } from GET /api/reservations/:ref: read-only summary mode. */
+function renderPackage(pkg, reservation = null) {
   const cities = pkg.plan.map((p) => `${p.city} ${p.nights}n`).join(' → ');
+  const ref = reservation?.reference ?? referenceOf(pkg);
   const t = pkg.traveler ?? {};
   const people = plural(t.adults, 'adult') + (t.children ? `, ${plural(t.children, 'child', 'children')}` : '');
   const header = el(
@@ -531,8 +537,17 @@ function renderPackage(pkg) {
       el('span', { class: `pkg-label pkg-status-${String(pkg.status).toLowerCase()}` },
         pkg.status === 'BOOKED' ? 'Booked' : 'Planned'),
     ),
+    reservation ? el('p', { class: 'res-kicker' }, 'Reservation summary') : null,
     el('h2', {}, `${pkg.country}: ${cities}`),
     el('p', { class: 'muted' }, `${fmtDateLong(pkg.start_date)} to ${fmtDateLong(pkg.end_date)} · ${people}`),
+    ref ? el(
+      'p',
+      { class: 'res-line' },
+      'Reservation number ',
+      el('strong', { class: 'res-number' }, ref),
+      // created_at is SQLite datetime('now'): "YYYY-MM-DD HH:MM:SS" in UTC.
+      reservation?.created_at ? el('span', { class: 'muted' }, ` · booked ${reservation.created_at.slice(0, 16)} UTC`) : null,
+    ) : null,
     el(
       'dl',
       { class: 'pkg-stats' },
@@ -775,9 +790,138 @@ function closePackage() {
   window.scrollTo({ top: 0 });
 }
 
+// ---------- confirm booking ----------
+
+const confirmBtn = document.getElementById('confirm-btn');
+
+/** Step 1: ask (booking is final). Step 2: POST /confirm. Step 3: show the 10-digit number with a copy button. */
+confirmBtn.addEventListener('click', () => {
+  const pkg = currentPkg;
+  if (!pkg || changing || pkg.status === 'BOOKED') return;
+  const over = pkg.total_inr - pkg.budget_inr;
+  const go = button('Confirm booking', 'btn btn-primary', () => confirmBooking(pkg));
+  dialog.replaceChildren(
+    el('div', { class: 'modal-head' }, el('h2', { id: 'modal-title' }, 'Confirm this package?'),
+      button('✕', 'btn btn-icon modal-close', () => dialog.close())),
+    el('p', {}, `${pkg.country}, ${fmtDateShort(pkg.start_date)} to ${fmtDateShort(pkg.end_date)}. `,
+      'Total ', el('strong', {}, inr(pkg.total_inr)), '. After confirming, the package can no longer be changed.'),
+    over > 0 ? el('p', { class: 'opt-reason' }, `This is ${inr(over)} over your budget.`) : null,
+    el('div', { class: 'modal-actions' }, button('Cancel', 'btn btn-secondary', () => dialog.close()), go),
+  );
+  dialog.showModal();
+  go.focus();
+});
+
+async function confirmBooking(pkg) {
+  if (changing) return;
+  changing = true;
+  dialog.setAttribute('aria-busy', 'true');
+  for (const b of dialog.querySelectorAll('button')) b.disabled = true;
+  confirmBtn.disabled = true;
+  try {
+    const res = await fetch(`/api/packages/${encodeURIComponent(pkg.id)}/confirm`, { method: 'POST' });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.package) throw new Error(data?.error || `HTTP ${res.status}`);
+    if (currentPkg !== pkg) return;
+    renderPackage(data.package);
+    if (data.ok) {
+      showNotice(null);
+      showReference(data.reference);
+    } else {
+      dialog.close();
+      showNotice(banner('error', 'Booking not confirmed. Nothing was booked.',
+        data.reasons?.length ? data.reasons : ['The booking was refused.']));
+    }
+  } catch (err) {
+    if (currentPkg !== pkg) return;
+    dialog.close();
+    showNotice(banner('error', 'Could not confirm the booking. Nothing was booked.', [err.message]));
+  } finally {
+    changing = false;
+    dialog.removeAttribute('aria-busy');
+    confirmBtn.disabled = false;
+  }
+}
+
+function showReference(ref) {
+  const field = el('input', { class: 'ref-field', type: 'text', readonly: '', value: ref, 'aria-label': 'Reservation number' });
+  const copy = button('Copy', 'btn btn-secondary btn-copy', async () => {
+    let ok = false;
+    try {
+      await navigator.clipboard.writeText(ref);
+      ok = true;
+    } catch {
+      field.select();
+      ok = document.execCommand?.('copy') ?? false;
+    }
+    copy.textContent = ok ? 'Copied ✓' : 'Select and copy';
+    setTimeout(() => { copy.textContent = 'Copy'; }, 2000);
+  });
+  dialog.replaceChildren(
+    el('div', { class: 'modal-head' }, el('h2', { id: 'modal-title' }, 'Booking confirmed'),
+      button('✕', 'btn btn-icon modal-close', () => dialog.close())),
+    el('p', {}, 'Your reservation number. Keep it to open your booking later with "Find my reservation".'),
+    el('div', { class: 'ref-row' }, field, copy),
+    el('div', { class: 'modal-actions' },
+      button('View reservation summary', 'btn btn-secondary', () => { dialog.close(); openReservation(ref); }),
+      button('Done', 'btn btn-primary', () => dialog.close())),
+  );
+  if (!dialog.open) dialog.showModal();
+  copy.focus();
+}
+
+// ---------- find my reservation (GET /api/reservations/:ref, ?reservation=<ref>) ----------
+
+const findForm = document.getElementById('find-form');
+findForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const ref = findForm.ref.value.trim();
+  if (!ref) return findForm.ref.focus();
+  openReservation(ref);
+});
+
+async function loadReservationView(ref) {
+  const seq = ++loadSeq;
+  leavePackage();
+  form.hidden = true;
+  resultEl.hidden = true;
+  bar.hidden = true;
+  pkgView.hidden = false;
+  pkgView.replaceChildren(el('div', { class: 'card' }, el('p', { class: 'muted' }, 'Looking up reservation…')));
+  window.scrollTo({ top: 0 });
+  try {
+    const res = await fetch(`/api/reservations/${encodeURIComponent(ref)}`);
+    const data = await res.json().catch(() => null);
+    if (seq !== loadSeq) return;
+    if (res.status === 404 || (res.ok && !data?.package)) {
+      pkgView.replaceChildren(
+        el('div', { class: 'banner banner-error', role: 'alert' },
+          el('strong', { class: 'banner-title' }, 'Reservation not found'),
+          el('p', {}, `No reservation has the number ${ref}. Check the 10 digits and try again.`)),
+        button('← New search', 'btn btn-secondary', closePackage),
+      );
+      return;
+    }
+    if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+    renderPackage(data.package, data);
+  } catch (err) {
+    if (seq !== loadSeq) return;
+    pkgView.replaceChildren(
+      banner('error', 'Could not look up the reservation.', [err.message]),
+      button('← New search', 'btn btn-secondary', closePackage),
+    );
+  }
+}
+
+function openReservation(ref) {
+  history.pushState({ reservation: ref }, '', `?reservation=${encodeURIComponent(ref)}`);
+  loadReservationView(ref);
+}
+
 function route() {
-  const id = new URLSearchParams(location.search).get('package');
-  if (id) loadPackageView(id);
+  const params = new URLSearchParams(location.search);
+  if (params.get('reservation')) loadReservationView(params.get('reservation'));
+  else if (params.get('package')) loadPackageView(params.get('package'));
   else showFormView();
 }
 

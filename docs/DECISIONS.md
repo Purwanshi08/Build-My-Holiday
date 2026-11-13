@@ -139,3 +139,18 @@
   `detail` has display data plus `current`, and for valid options `total_inr`, `over_budget` and `warnings`.
 - **2026-11-13 — `checkRules` moved to `test/rules.js`.** Importing it from `build.test.js` re-ran that file's
   tests inside other test files.
+- **2026-11-13 — Confirm (`POST /api/packages/:id/confirm`).** Everything runs in one `BEGIN IMMEDIATE`
+  transaction (`store.transaction(fn).immediate`). It re-reads the package and builds a fresh ctx from `booked_*`.
+  It picks a reference with `crypto.randomInt(1e9, 1e10)` as a string, picking again if a reservation already has
+  it. Then it builds the BOOKED version (package and every item `BOOKED`, `booking: { reference }`) and runs
+  `validatePackage` on that version, so the booking-status checks run as well. Any problem (e.g. "only 1 seat(s)
+  left for 3 traveler(s)") refuses the confirm and writes nothing. Otherwise `recordBooking` saves the package,
+  the reservation, the seats (flight item `quantity`) and the rooms (hotel `quantity` for each night from
+  check-in to check-out − 1). Always HTTP 200 `{ ok, reference, package, reasons }`, like `/change`. Confirming a
+  booked package is refused with its existing number.
+- **2026-11-13 — Confirm and reservation UI.** "Confirm booking" sits in the sticky bar and is hidden once the
+  package is booked. It first asks in a dialog (booking is final; shows the amount over budget if any). Then it
+  shows the 10-digit number in a read-only field with Copy (Clipboard API; falls back to select +
+  `execCommand('copy')`). Refusals show the reasons in the red notice above the bar. "Find my reservation" in the
+  header opens `/?reservation=<ref>` (survives a refresh). It shows a read-only summary with the reference, booking
+  time (SQLite UTC), header and timeline, no edit buttons, and Export JSON. A 404 shows "Reservation not found".

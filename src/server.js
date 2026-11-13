@@ -1,12 +1,14 @@
 // HTTP server: Express app on port 3000 (or $PORT) serving public/, /images and the JSON API over the engine.
 // No travel logic here: every answer comes from src/engine/index.js, with ctx built from our db (src/db.js).
 import express from 'express';
+import { randomInt } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import {
   getMeta,
   buildPackages,
   getOptions,
   applyChange,
+  validatePackage,
   exportTrip,
 } from './engine/index.js';
 import * as store from './db.js';
@@ -64,9 +66,62 @@ app.post('/api/packages/:id/change', loadPackage, (req, res) => {
   res.json(result);
 });
 
-// Stub until the booking flow is built: will validate, write reservations + booked_* and mark items BOOKED.
-app.post('/api/packages/:id/confirm', loadPackage, (_req, res) => {
-  res.status(501).json({ error: 'confirm is not implemented yet' });
+/** Date-only + n days via the UTC trick (CLAUDE.md rule 4). */
+const addDays = (d, n) => {
+  const t = new Date(d + 'T00:00:00Z');
+  t.setUTCDate(t.getUTCDate() + n);
+  return t.toISOString().slice(0, 10);
+};
+
+/** Seats per flight and rooms per (room, night) that a package takes. Hotel item: start = check-in, end = check-out. */
+function usage(pkg) {
+  const flights = pkg.items
+    .filter((it) => it.type === 'flight')
+    .map((it) => ({ flight_id: it.catalog_id, seats: it.quantity }));
+  const rooms = [];
+  for (const it of pkg.items.filter((i) => i.type === 'hotel')) {
+    for (let d = it.start.slice(0, 10); d < it.end.slice(0, 10); d = addDays(d, 1)) {
+      rooms.push({ room_id: it.room_id, date: d, rooms: it.quantity });
+    }
+  }
+  return { flights, rooms };
+}
+
+/** Unused 10-digit reference; retries on a clash with an existing reservation. */
+function newReference() {
+  for (;;) {
+    const ref = String(randomInt(1e9, 1e10));
+    if (!store.getReservation(ref)) return ref;
+  }
+}
+
+/**
+ * The whole confirm in one IMMEDIATE transaction: re-read the package, build ctx fresh from booked_*, validate the
+ * BOOKED version, then write package + reservation + seats/rooms. Any validation problem (e.g. the last seats or
+ * rooms were just booked by someone else) refuses the confirm and writes nothing.
+ */
+const confirmPackage = store.transaction((id) => {
+  const pkg = store.getPackage(id);
+  if (pkg.status === 'BOOKED') {
+    const reference = pkg.items.find((it) => it.booking?.reference)?.booking.reference ?? null;
+    return { ok: false, reference, package: pkg, reasons: [`This package is already booked (reservation ${reference}).`] };
+  }
+  const reference = newReference();
+  const booked = {
+    ...pkg,
+    status: 'BOOKED',
+    items: pkg.items.map((it) => ({ ...it, status: 'BOOKED', booking: { reference } })),
+  };
+  const problems = validatePackage(booked, store.getCtx());
+  if (problems.length) return { ok: false, reference: null, package: pkg, reasons: problems };
+  const { flights, rooms } = usage(booked);
+  store.recordBooking(booked, reference, flights, rooms);
+  return { ok: true, reference, package: booked, reasons: [] };
+});
+
+// Always 200 with { ok, reference, package, reasons } (like /change); ok:false = refused, nothing written.
+app.post('/api/packages/:id/confirm', loadPackage, (req, res) => {
+  res.json(confirmPackage.immediate(req.params.id));
 });
 
 app.get('/api/reservations/:ref', (req, res) => {

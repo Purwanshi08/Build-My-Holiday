@@ -12,6 +12,14 @@
   <header class="site-header">
     <h1>Build My Holiday</h1>
     <p class="tagline">Flights, hotels, transfers and sights in one package, within your budget.</p>
+    <form id="find-form" class="find-form" role="search" novalidate>
+      <label for="find-ref">Find my reservation</label>
+      <div class="find-row">
+        <input id="find-ref" name="ref" type="text" inputmode="numeric" autocomplete="off" maxlength="10"
+               placeholder="10-digit number">
+        <button type="submit" class="btn btn-find">Find</button>
+      </div>
+    </form>
   </header>
 
   <main class="container">
@@ -97,7 +105,10 @@
         <div><dt>Budget</dt><dd id="bar-budget">—</dd></div>
         <div id="bar-left-box" aria-live="polite"><dt id="bar-left-label">Left</dt><dd id="bar-left">—</dd></div>
       </dl>
-      <a id="export-btn" class="btn btn-primary btn-export" href="#">Export JSON</a>
+      <div class="bar-actions">
+        <a id="export-btn" class="btn btn-secondary btn-export" href="#">Export JSON</a>
+        <button type="button" id="confirm-btn" class="btn btn-primary btn-confirm">Confirm booking</button>
+      </div>
     </div>
   </footer>
 

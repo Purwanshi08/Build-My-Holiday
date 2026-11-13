@@ -1,3 +1,5 @@
+// SQLite store (better-sqlite3, file app.db or $DB_PATH): saved packages, reservations and our booked seats/rooms.
+// Also builds the engine ctx from the booked_* tables and records a confirmed booking in one transaction.
 import Database from 'better-sqlite3';
 import { fileURLToPath } from 'node:url';
 
@@ -88,6 +90,9 @@ export function getCtx() {
   for (const r of stmts.bookedRooms.all()) rooms[`${r.room_id}|${r.date}`] = r.rooms;
   return { booked: { flights, rooms } };
 }
+
+/** Wrap fn in one SQLite transaction (better-sqlite3: sync; `.immediate(...)` takes the write lock up front). */
+export const transaction = (fn) => db.transaction(fn);
 
 /**
  * Record a confirmed booking atomically: updated package, reservation row and the seats/rooms it takes.
