@@ -23,6 +23,17 @@
   </header>
 
   <main class="container">
+    <form id="quick-form" class="card quick-card" novalidate>
+      <h2><label for="quick-text">Quick request</label></h2>
+      <p class="field-hint" id="quick-hint">Describe your trip in plain words. We fill in the form below; check it, then build.</p>
+      <textarea id="quick-text" name="text" rows="3" maxlength="1000" aria-describedby="quick-hint"
+        placeholder="e.g. 2 adults and a 6 year old from Bengaluru to Japan on 10 April for 6 nights, budget 3.5 lakh"></textarea>
+      <div class="quick-actions">
+        <button type="submit" id="quick-submit" class="btn btn-secondary">Fill the form</button>
+      </div>
+      <div id="quick-result" aria-live="polite"></div>
+    </form>
+
     <form id="request-form" class="card" novalidate>
       <h2>Plan your trip</h2>
       <p id="meta-error" class="banner banner-error" hidden></p>
