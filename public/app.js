@@ -12,6 +12,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const WINDOW_PREFIX = 'Flights and rooms are only available';
 
 let rules = { min_nights: 3, max_nights: 10 };
+let attractionHours = new Map(); // attraction_id -> { open_from, open_until }
 
 const inr = (n) => '₹' + Number(n).toLocaleString('en-IN');
 const labelName = { cheapest: 'Cheapest', fastest: 'Fastest', best_rated: 'Best rated' };
@@ -36,6 +37,7 @@ async function loadMeta() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const meta = await res.json();
     rules = { ...rules, ...meta.rules };
+    attractionHours = new Map((meta.attractions ?? []).map((a) => [a.attraction_id, a]));
 
     depSel.replaceChildren(el('option', { value: '' }, 'Choose a city…'));
     for (const d of meta.departure_cities) {
@@ -500,6 +502,12 @@ function eventNode(ev, pkg) {
   } else if (ev.kind === 'check-out') {
     title = `Check out: ${item.name}`;
     when = 'Check-out';
+  } else if (item.type === 'attraction') {
+    // Show when the attraction is open, not the planned visit slot.
+    const hours = attractionHours.get(item.catalog_id);
+    when = hours ? 'Open' : '';
+    if (hours) details.push(`${hours.open_from} – ${hours.open_until}`);
+    details.push(plural(item.quantity, 'ticket'));
   } else {
     const end = timeOf(item.end ?? '');
     if (end) {
@@ -507,7 +515,6 @@ function eventNode(ev, pkg) {
       details.push(`${ev.time} – ${end}${nextDay ? ` (${fmtDateShort(dateOf(item.end))})` : ''}`);
     }
     if (item.type === 'flight') details.push(plural(item.quantity, 'seat'));
-    if (item.type === 'attraction') details.push(plural(item.quantity, 'ticket'));
     if (item.type === 'transfer') details.push(`× ${item.quantity}`);
   }
 
@@ -651,7 +658,8 @@ function optionInfo(d = {}) {
   if (d.cities && d.travel_minutes != null) bits.push(`travel ${hm(d.travel_minutes)}`);
   if (d.area) bits.push(d.area);
   if (d.date) bits.push(fmtDateShort(d.date));
-  if (d.start && d.end) bits.push(`${timeOf(d.start) ?? d.start} – ${timeOf(d.end) ?? d.end}`);
+  if (d.open_from && d.open_until) bits.push(`Open ${d.open_from} – ${d.open_until}`);
+  else if (d.start && d.end) bits.push(`${timeOf(d.start) ?? d.start} – ${timeOf(d.end) ?? d.end}`);
   if (d.duration_minutes != null) bits.push(hm(d.duration_minutes));
   return bits.join(' · ');
 }
@@ -1092,5 +1100,4 @@ form.addEventListener('submit', async (e) => {
 });
 
 
-loadMeta();
-route();
+loadMeta().finally(route);

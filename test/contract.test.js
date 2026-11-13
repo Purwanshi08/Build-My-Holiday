@@ -21,6 +21,10 @@ test('getMeta lists departure cities and countries', () => {
   const m = engine.getMeta();
   assert.ok(m.departure_cities.some((d) => d.airport === 'BLR'));
   assert.deepEqual(m.countries.map((c) => c.name).sort(), ['Japan', 'United Arab Emirates']);
+  assert.deepEqual(
+    m.attractions.find((a) => a.attraction_id === 'ATT-KYO-001'),
+    { attraction_id: 'ATT-KYO-001', open_from: '06:00', open_until: '18:00' },
+  );
 });
 
 test('validateRequest flags bad fields', () => {

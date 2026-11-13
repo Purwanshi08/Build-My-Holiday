@@ -1,6 +1,6 @@
 // Stub engine: hardcoded but catalog-accurate responses for every contract function (docs/CONTRACT.md),
 // so the server and UI can be built before the real engine exists. Uses real catalog IDs and prices.
-import { destinations } from './catalog.js';
+import { attractions, destinations } from './catalog.js';
 import { validateRequest, windowReason } from './request.js';
 
 export { validateRequest };
@@ -15,6 +15,10 @@ export function getMeta() {
       code: c.code,
       name: c.name,
       cities: c.cities.map((x) => x.name),
+    })),
+    // Display-only: opening hours of every attraction, so the timeline can show them without catalog access.
+    attractions: attractions.map(({ attraction_id, open_from, open_until }) => ({
+      attraction_id, open_from, open_until,
     })),
     rules: clone(destinations.rules),
   };

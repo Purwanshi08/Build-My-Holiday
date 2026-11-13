@@ -120,9 +120,12 @@ Person B builds it from the db. `{ booked: { flights: {}, rooms: {} } }` (or `un
 ```json
 { "departure_cities": [{ "airport": "BLR", "city": "Bengaluru" }],
   "countries": [{ "code": "JP", "name": "Japan", "cities": ["Tokyo", "Kyoto", "Osaka"] }],
+  "attractions": [{ "attraction_id": "ATT-KYO-001", "open_from": "06:00", "open_until": "18:00" }],
   "rules": { "min_nights": 3, "max_nights": 10, "min_nights_per_city": 2,
              "data_window": { "first_night": "2027-04-01", "last_departure": "2027-04-20" } } }
 ```
+`attractions` is display-only (the timeline shows opening hours, not the planned visit slot); it is not part of a
+package or an export.
 
 ### `validateRequest(req) -> { [field]: message }`
 Empty object = valid. Keys are the request field names above. Messages are short, user-facing English.
