@@ -78,8 +78,6 @@ input.invalid:focus, select.invalid:focus { box-shadow: 0 0 0 3px rgba(198, 40, 
 fieldset.field.invalid { border-color: var(--error); }
 
 .field-hint { margin: 4px 0 0; font-size: 0.85rem; color: var(--muted); }
-.stay-toggle { display: flex; align-items: center; gap: 8px; font-weight: 500; cursor: pointer; }
-.stay-toggle input { width: 16px; height: 16px; margin: 0; }
 .field-error { margin: 4px 0 0; font-size: 0.875rem; color: var(--error); font-weight: 500; }
 .field-error:empty { display: none; }
 

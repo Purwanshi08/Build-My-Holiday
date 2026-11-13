@@ -6,7 +6,7 @@ import {
 } from './catalog.js';
 import { addDays, addMinutes, toMinutes, fromMinutes, weekday } from './time.js';
 import { hotelPrice, minRooms } from './pricing.js';
-import { airportLeg, cityAirportLeg, attractionDays, buildCandidate, local } from './build.js';
+import { airportLeg, attractionDays, buildCandidate, local } from './build.js';
 import { cityPlans, flightPairs, seatsFree } from './plans.js';
 import {
   arrivalPickup, departurePickup, fitVisit, openOn, optionsFor, stayTimes, stayTimeText, stayTimeOk, stayProblem,
@@ -39,8 +39,7 @@ function refitAirport(parts, dir, warnings) {
   const what = dir === 'arrive' ? 'Arrival airport transfer' : 'Return airport transfer';
   const cur = stay[dir];
   const t = cur.t;
-  const hotel = stay.hotel;
-  if (t.airport === airport && t.city === stay.city && (!hotel || t.area === null || t.area === hotel.area)) {
+  if (t.airport === airport && t.city === stay.hotel.city && (t.area === null || t.area === stay.hotel.area)) {
     const time = dir === 'arrive' ? arrivalPickup(t, flightTime) : departurePickup(t, flightTime);
     if (time) {
       if (time.start !== cur.start) {
@@ -50,13 +49,10 @@ function refitAirport(parts, dir, warnings) {
       return null;
     }
   }
-  const best = hotel
-    ? airportLeg(c, dir, airport, hotel, flightTime)
-    : cityAirportLeg(c, dir, airport, stay.city, flightTime);
+  const best = airportLeg(c, dir, airport, stay.hotel, flightTime);
   if (!best) {
-    const where = hotel ? `${hotel.name} (${hotel.area})` : `the ${stay.city} city centre`;
-    return `No airport transfer between ${airport} and ${where} fits the flight times ` +
-      '(pickup ≥ 60 min after landing, at the airport ≥ 180 min before departure, inside service hours).';
+    return `No airport transfer between ${airport} and ${stay.hotel.name} (${stay.hotel.area}) fits the flight ` +
+      'times (pickup ≥ 60 min after landing, at the airport ≥ 180 min before departure, inside service hours).';
   }
   warnings.push(`${what} changed from "${t.name}" to "${best.t.name}" (pickup ${best.start.replace('T', ' ')}).`);
   stay[dir] = best;
@@ -218,7 +214,6 @@ function starsNote(before, after) {
   const fmt = (n) => n.toFixed(2);
   const a = before.metrics.avg_stars;
   const b = after.metrics.avg_stars;
-  if (a == null || b == null) return 'This package has no hotels, so there is no average star rating.';
   if (a !== b) return `Average hotel stars ${fmt(a)} → ${fmt(b)}.`;
   const hotels = after.plan.map((p) => {
     const h = hotelById.get(p.hotel_id);
@@ -237,8 +232,8 @@ const REBUILD = {
   },
   best_rated: {
     strategy: 'rated', how: 'the highest-star hotels',
-    better: (a, b) => (a.metrics.avg_stars ?? 0) > (b.metrics.avg_stars ?? 0) ||
-      ((a.metrics.avg_stars ?? 0) === (b.metrics.avg_stars ?? 0) && a.total_inr < b.total_inr),
+    better: (a, b) => a.metrics.avg_stars > b.metrics.avg_stars ||
+      (a.metrics.avg_stars === b.metrics.avg_stars && a.total_inr < b.total_inr),
   },
 };
 
@@ -249,7 +244,6 @@ const HANDLERS = {
     const { c } = parts;
     const i = parts.stays.findIndex((s) => s.city === ch.city);
     if (i < 0) return { refuse: [`This package has no stay in ${ch.city}.`] };
-    if (!parts.stays[i].hotel) return { refuse: [`This package does not include a hotel in ${ch.city}.`] };
     const hotel = hotelById.get(ch.hotel_id);
     if (!hotel || hotel.city !== ch.city) return { refuse: [`${ch.hotel_id} is not a hotel in ${ch.city}.`] };
     const room = roomById.get(ch.room_id);
@@ -384,12 +378,11 @@ const HANDLERS = {
     const rebuilt = (same && strategy !== 'quick' ? bestOf([same]) : null) ?? bestOf(pairs);
     if (!rebuilt) return { refuse: [...failures] };
     // Cities that stay keep the traveler's hotel; only new cities get one picked by the package's rule.
-    const { pkg: built, notes } = c.stay ? keepHotels(rebuilt, parts.stays, c.ctx) : { pkg: rebuilt, notes: [] };
-    const howText = c.stay ? how : (pkg.label === 'fastest' ? 'the shortest travel' : 'the cheapest flights and transfers');
+    const { pkg: built, notes } = keepHotels(rebuilt, parts.stays, c.ctx);
     const warnings = [
-      `Rebuilt for ${planText(plan)} (new cities get ${howText}): transfers and attractions were chosen again.`,
+      `Rebuilt for ${planText(plan)} (new cities get ${how}): transfers and attractions were chosen again.`,
       ...notes,
-      ...(c.stay ? [starsNote(pkg, built)] : []),
+      starsNote(pkg, built),
     ];
     const flights = built.items.filter((i) => i.type === 'flight').map((i) => i.catalog_id);
     if (flights[0] !== parts.out.flight_id) warnings.push(`Arrival flight changed to ${flights[0]} to serve ${plan[0].city}.`);
@@ -413,7 +406,7 @@ export function applyChange(pkg, change, ctx) {
     return refuse([`This package cannot be changed: ${e.message}.`]);
   }
 
-  const timesBefore = parts.c.stay ? stayTimes(parts.stays, parts.moves) : null; // before the handler edits parts
+  const timesBefore = stayTimes(parts.stays, parts.moves); // before the handler edits parts
   const r = handler(parts, change, pkg);
   if (r.refuse) return refuse(r.refuse);
   const warnings = [...(r.warnings ?? [])];
@@ -434,10 +427,8 @@ export function applyChange(pkg, change, ctx) {
 
   const problems = validatePackage(next, ctx);
   if (problems.length) return refuse(problems);
-  if (parts.c.stay) {
-    const after = decompose(next, ctx);
-    warnings.push(...hotelTimingLines(timesBefore, stayTimes(after.stays, after.moves)));
-  }
+  const after = decompose(next, ctx);
+  warnings.push(...hotelTimingLines(timesBefore, stayTimes(after.stays, after.moves)));
   if (next.total_inr > next.budget_inr) {
     warnings.push(`The new total ${inr(next.total_inr)} is ${inr(next.total_inr - next.budget_inr)} over the budget of ${inr(next.budget_inr)}.`);
   }
@@ -467,7 +458,7 @@ const sortOptions = (list) => list.sort((x, y) =>
 
 function hotelOptionsFor(pkg, city, ctx) {
   const stay = pkg.plan.find((p) => p.city === city);
-  if (!stay || !stay.hotel_id) return [];
+  if (!stay) return [];
   const list = [];
   for (const hotel of hotelsInCity(city)) {
     for (const room of roomsOfHotel(hotel.hotel_id)) {

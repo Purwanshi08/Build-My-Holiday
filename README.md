@@ -107,15 +107,6 @@ The traveler picks only the country. The app chooses the cities, their order and
 
 Nara attractions are never planned: Nara is not one of the plan cities.
 
-## Stay or no stay
-
-The request form has an **Include a hotel** checkbox. Untick it if you already have your own place to stay: the app
-still builds the flights, both airport transfers, the transfers between cities and the attractions, but adds no
-hotel items or hotel cost. The city plan stays the same, because the app still needs to know which city you are in
-each night. No-stay packages have no "Change hotel" button and no average star rating. This is an extra app feature:
-the judges' problem statement expects a hotel for every night, so a no-stay export is not a judged package.
-
-
 ## What is finished
 
 | | Feature | Status |

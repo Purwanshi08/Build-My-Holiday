@@ -27,12 +27,11 @@ once Person B creates them; until then it takes them from the stub. Signatures b
   "nights": 6,
   "adults": 2,
   "childAges": [6],
-  "budgetInr": 350000,
-  "includeStay": true
+  "budgetInr": 350000
 }
 ```
 
-All fields are required (a missing field is an error) except `includeStay`.
+All fields are required (a missing field is an error).
 
 | Field | Type | Valid when |
 |---|---|---|
@@ -43,7 +42,6 @@ All fields are required (a missing field is an error) except `includeStay`.
 | `adults` | integer | ≥ 1 |
 | `childAges` | integer[] | Each 0–17; may be empty |
 | `budgetInr` | integer | ≥ 1 |
-| `includeStay` | boolean (optional) | `true` (default) = hotel in every city; `false` = no hotel items at all |
 
 **`INVALID_REQUEST` is only for malformed or out-of-range field values** (the table above).
 
@@ -81,11 +79,6 @@ A package is the shared trip format (DATA_DICTIONARY.md §4) **plus** our own fi
 - `metrics.travel_minutes` = both flights' `duration_minutes` + each between-city transfer's `duration_minutes` (G4 "fastest").
 - `metrics.avg_stars` = hotel `stars` averaged per night, rounded to 2 decimals (G4 "best rated").
 - `plan` is in visit order; `check_out` of one city = `check_in` of the next; last `check_out` = `end_date`.
-- **No-stay packages** (`includeStay: false`): `items` has no `hotel` items; `plan` still lists the cities and nights
-  with `hotel_id: null`, `room_id: null`, `rooms: 0`, and `metrics.avg_stars` is `null`. Flights, both airport
-  transfers, intercity transfers and attractions are built as usual; airport transfers serve the city (no hotel
-  area to match). `best_rated` is left out because there are no hotel stars. `validatePackage` skips the hotel
-  rules when a package has no hotel items and derives the city route from the airport/intercity transfers.
 
 ### Trip item (exactly the DATA_DICTIONARY §4 fields)
 
@@ -179,8 +172,6 @@ Re-checks every rule of problem §4 (and totals). Empty array = correct.
 - Hotel items' `warnings[]` (DATA_DICTIONARY §4) hold the current check-in/check-out problems of that stay, in every
   package (built or changed). They may be non-empty; `exportTrip` keeps them.
 - `delta_inr` = new total − old total.
-- In a no-stay package `swap_hotel` is refused ("This package does not include a hotel in …"); `getOptions`
-  `{kind:'hotel'}` returns `[]`. All other changes work as usual, and `set_city_plan` rebuilds without hotels.
 
 ### `parseRequest(text) -> { fields, missing, notes }`
 Turns a short plain-words request into Request fields (§1) with regexes and keyword lists only (no AI).
