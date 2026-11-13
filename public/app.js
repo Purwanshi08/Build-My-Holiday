@@ -1,11 +1,12 @@
-// Front end: request form (GET /api/meta, client checks, POST /api/packages/build), result cards / over-budget
-// suggestions / NO_PACKAGE reasons, and the day-by-day package view (?package=<id>) with a sticky budget bar.
+// FitMyTrip front end: request form (GET /api/meta, client checks, POST /api/packages/build), result cards / over-budget
+// suggestions / NO_PACKAGE reasons, and the day-by-day package view (?package=<id>) with a sticky budget fit bar.
 
 const form = document.getElementById('request-form');
 const submitBtn = document.getElementById('submit');
 const resultEl = document.getElementById('result');
 const childList = document.getElementById('child-list');
 const childTpl = document.getElementById('child-row');
+const requestCard = document.getElementById('request-card');
 
 const FIELDS = ['departureAirport', 'country', 'startDate', 'nights', 'adults', 'childAges', 'budgetInr', 'includeStay'];
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -16,16 +17,62 @@ let attractionHours = new Map(); // attraction_id -> { open_from, open_until }
 
 const inr = (n) => '₹' + Number(n).toLocaleString('en-IN');
 const labelName = { cheapest: 'Cheapest', fastest: 'Fastest', best_rated: 'Best rated' };
+const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const scrollMode = () => (reducedMotion() ? 'auto' : 'smooth');
 
 function el(tag, attrs = {}, ...children) {
   const node = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
+    if (v == null || v === false) continue;
     if (k === 'class') node.className = v;
     else node.setAttribute(k, v);
   }
-  for (const c of children) if (c != null) node.append(c);
+  for (const c of children) if (c != null && c !== false) node.append(c);
   return node;
 }
+
+// ---------- inline SVG icons (no icon font, works offline) ----------
+
+const ICONS = {
+  plane: '<path d="M2.5 20h19"/><path d="M3.6 12.9l2.3-.9 2.7 1.5 3.4-1.4-3.6-5.6 2.2-.9 6.2 4.5 3-1.2a1.7 1.7 0 0 1 1.3 3.1L8 17.4z"/>',
+  bed: '<path d="M3 18.5V6.5M3 14h18v4.5M21 14v-1.5a3 3 0 0 0-3-3h-7V14"/><circle cx="7" cy="11.5" r="1.8"/>',
+  car: '<path d="M5 17v-4.6L7.1 7.5h9.8L19 12.4V17"/><path d="M3.5 17h17M3.5 12.5h17"/><path d="M7 17v2.5M17 17v2.5"/><path d="M7.5 15h.01M16.5 15h.01"/>',
+  ticket: '<path d="M4 7h16v3a2 2 0 0 0 0 4v3H4v-3a2 2 0 0 0 0-4z"/><path d="M14 7v2M14 11.5v1M14 15v2"/>',
+  arrowRight: '<path d="M5 12h14M13 6l6 6-6 6"/>',
+  arrowLeft: '<path d="M19 12H5M11 6l-6 6 6 6"/>',
+  check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  alert: '<path d="M12 4L2.8 19.5h18.4z"/><path d="M12 10v4.2M12 17.2v.01"/>',
+  x: '<path d="M7 7l10 10M17 7L7 17"/>',
+  plus: '<path d="M6 12h12M12 6v12"/>',
+  swap: '<path d="M6 8h12l-3.5-3.5M18 16H6l3.5 3.5"/>',
+  trash: '<path d="M5 7h14M10 7V5h4v2M7 7l1 12.5h8L17 7"/>',
+  copy: '<rect x="9" y="9" width="10.5" height="11" rx="2"/><path d="M15 9V5.5A1.5 1.5 0 0 0 13.5 4h-8A1.5 1.5 0 0 0 4 5.5v9A1.5 1.5 0 0 0 5.5 16H9"/>',
+  calendar: '<rect x="4" y="5.5" width="16" height="14.5" rx="2.5"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/>',
+  users: '<circle cx="9" cy="8" r="3.2"/><path d="M3.5 19.5c.6-3.4 2.8-5.3 5.5-5.3s4.9 1.9 5.5 5.3"/><circle cx="17" cy="10" r="2.4"/><path d="M15.8 14.6c2.5-.4 4.3 1.2 4.7 4.4"/>',
+  pin: '<path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.3"/>',
+  clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+  star: '<path d="M12 3.8l2.5 5.2 5.7.8-4.1 4 1 5.7-5.1-2.7-5.1 2.7 1-5.7-4.1-4 5.7-.8z"/>',
+  bolt: '<path d="M13 3L5 13.5h6l-1 7.5 8-10.5h-6z"/>',
+  tag: '<path d="M3.5 12.3V4h8.3l8.7 8.7-8.3 8.3z"/><circle cx="8" cy="8.5" r="1.4"/>',
+  ban: '<circle cx="12" cy="12" r="8.5"/><path d="M6 6l12 12"/>',
+  search: '<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>',
+  searchX: '<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5M8.8 8.8l4.4 4.4M13.2 8.8l-4.4 4.4"/>',
+  wallet: '<rect x="3.5" y="6" width="17" height="12.5" rx="2.5"/><path d="M3.5 10h17M15.5 14.5h2"/>',
+  map: '<path d="M9 4.5L3.5 6.5v13L9 17.5l6 2 5.5-2v-13L15 6.5z"/><path d="M9 4.5v13M15 6.5v13"/>',
+};
+
+function icon(name, cls = 'icon') {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('class', cls);
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  svg.innerHTML = ICONS[name] ?? '';
+  return svg;
+}
+
+const LABEL_ICON = { cheapest: 'tag', fastest: 'bolt', best_rated: 'star' };
+const TYPE_ICON = { flight: 'plane', hotel: 'bed', transfer: 'car', attraction: 'ticket' };
 
 // ---------- meta / dropdowns ----------
 
@@ -72,6 +119,23 @@ form.budgetInr.addEventListener('input', () => {
     form.budgetInr.value !== '' && Number.isInteger(n) && n > 0 ? inr(n) : '';
 });
 
+// ---------- steppers (nights, adults): only change the input value; validation is unchanged ----------
+
+form.addEventListener('click', (e) => {
+  const btn = e.target.closest('.step');
+  if (!btn) return;
+  const input = form[btn.dataset.step];
+  const dir = Number(btn.dataset.dir);
+  const min = Number(input.min || 1);
+  const max = input.max === '' ? Infinity : Number(input.max);
+  const cur = Number(input.value);
+  let next;
+  if (input.value === '' || !Number.isFinite(cur)) next = min;
+  else next = Math.min(max, Math.max(min, Math.round(cur) + dir));
+  input.value = String(next);
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+});
+
 // ---------- children ----------
 
 function renumberChildren() {
@@ -80,7 +144,8 @@ function renumberChildren() {
     const label = li.querySelector('label');
     input.id = `child-age-${i}`;
     label.htmlFor = input.id;
-    label.textContent = `Child ${i + 1} age`;
+    label.replaceChildren(`Child ${i + 1}`, el('span', { class: 'sr-only' }, ' age'));
+    li.querySelector('.remove-child').setAttribute('aria-label', `Remove child ${i + 1}`);
   });
 }
 
@@ -88,9 +153,11 @@ function addChild(age = '') {
   const li = childTpl.content.firstElementChild.cloneNode(true);
   li.querySelector('input').value = age;
   li.querySelector('.remove-child').addEventListener('click', () => {
+    const next = li.nextElementSibling ?? li.previousElementSibling;
     li.remove();
     renumberChildren();
     clearError('childAges');
+    (next?.querySelector('input') ?? document.getElementById('add-child')).focus();
   });
   childList.append(li);
   renumberChildren();
@@ -213,7 +280,7 @@ function showErrors(errors, bad = {}) {
   return unknown;
 }
 
-// ---------- results ----------
+// ---------- shared display pieces ----------
 
 function showResult(...nodes) {
   resultEl.replaceChildren(...nodes);
@@ -234,36 +301,106 @@ const hm = (minutes) => `${Math.floor(minutes / 60)}h ${String(minutes % 60).pad
 const stars = (n) => (n == null ? 'No hotel' : `${Number(n).toFixed(2)} ★`);
 const plural = (n, word, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
 
-function button(label, cls, onClick) {
-  const b = el('button', { type: 'button', class: cls }, label);
+function button(label, cls, onClick, attrs = {}) {
+  const b = el('button', { type: 'button', class: cls, ...attrs }, ...(Array.isArray(label) ? label : [label]));
   b.addEventListener('click', onClick);
   return b;
 }
 
-function stayStat(pkg) {
-  return pkg.metrics.avg_stars == null
-    ? el('div', {}, el('dt', {}, 'Stay'), el('dd', {}, 'Own stay'))
-    : el('div', {}, el('dt', {}, 'Average hotel stars'), el('dd', {}, stars(pkg.metrics.avg_stars)));
+function labelBadge(label) {
+  if (!label) return null;
+  return el('span', { class: `pkg-label pkg-${label}` }, icon(LABEL_ICON[label] ?? 'check'), labelName[label] ?? label);
+}
+
+/** Route as city chips with nights: Tokyo 3 → Kyoto 3. */
+function routeChips(plan) {
+  const list = el('ol', { class: 'route', 'aria-label': 'Route' });
+  plan.forEach((p, i) => {
+    const li = el('li', {});
+    if (i > 0) li.append(el('span', { class: 'route-arrow', 'aria-hidden': 'true' }, icon('arrowRight')));
+    li.append(el('span', { class: 'city-chip' }, p.city,
+      el('b', {}, String(p.nights), el('span', { class: 'sr-only' }, p.nights === 1 ? ' night' : ' nights'))));
+    list.append(li);
+  });
+  return list;
+}
+
+/**
+ * Fit meter: the track stands for max(total, budget). Within budget the teal fill ends at total / budget; over budget
+ * the fill (red) stops at the budget mark and a hatched overflow segment shows the excess.
+ */
+function setMeter(track, total, budget) {
+  const max = Math.max(total, budget, 1);
+  const over = total > budget;
+  track.classList.toggle('is-over', over);
+  const fill = track.querySelector('.fit-fill');
+  const extra = track.querySelector('.fit-over');
+  const mark = track.querySelector('.fit-mark');
+  fill.style.width = `${(Math.min(total, budget) / max) * 100}%`;
+  extra.style.left = `${(budget / max) * 100}%`;
+  extra.style.width = over ? `${((total - budget) / max) * 100}%` : '0%';
+  mark.style.left = `${(budget / max) * 100}%`;
+  const left = budget - total;
+  track.setAttribute('aria-label', left >= 0
+    ? `Fits: ${inr(total)} of ${inr(budget)} budget, ${inr(left)} left`
+    : `Over budget: ${inr(total)} against ${inr(budget)}, ${inr(-left)} over`);
+}
+
+function fitMeter(total, budget) {
+  const left = budget - total;
+  const track = el('div', { class: 'fit-track', role: 'img' },
+    el('span', { class: 'fit-fill' }), el('span', { class: 'fit-over' }), el('span', { class: 'fit-mark' }));
+  setMeter(track, total, budget);
+  return el(
+    'div',
+    { class: 'meter' },
+    el('div', { class: 'meter-label' },
+      el('span', { class: 'muted' }, `of ${inr(budget)}`),
+      el('strong', { class: left >= 0 ? 'money-ok' : 'money-over' },
+        left >= 0 ? `${inr(left)} left` : `${inr(-left)} over`)),
+    track,
+  );
+}
+
+// ---------- results ----------
+
+/**
+ * One value on a package card. When `win` is true this is the value that earned the card its badge: it gets the
+ * badge's icon, teal + bold styling, and a screen-reader note naming the badge.
+ */
+function cardValue(content, label, win) {
+  if (!win) return [content];
+  return [
+    el('span', { class: 'win-value' }, icon(LABEL_ICON[label] ?? 'check'), content),
+    el('span', { class: 'sr-only' }, ` (${labelName[label] ?? label})`),
+  ];
 }
 
 function packageCard(pkg) {
-  const cities = pkg.plan.map((p) => `${p.city} ${plural(p.nights, 'night')}`).join(' → ');
+  const nights = pkg.plan.reduce((t, p) => t + p.nights, 0);
+  const win = (label) => pkg.label === label;
+  const hasStars = pkg.metrics.avg_stars != null;
   return el(
     'article',
-    { class: 'pkg-card' },
-    el('span', { class: `pkg-label pkg-${pkg.label}` }, labelName[pkg.label] ?? pkg.label),
-    el('h3', {}, pkg.country),
-    el('p', { class: 'pkg-cities' }, cities),
-    el('p', { class: 'muted' }, `${fmtDateShort(pkg.start_date)} to ${fmtDateShort(pkg.end_date)}`),
-    el(
-      'dl',
-      { class: 'pkg-stats' },
-      el('div', {}, el('dt', {}, 'Total'), el('dd', { class: 'pkg-total' }, inr(pkg.total_inr))),
-      el('div', {}, el('dt', {}, 'Budget left'), el('dd', { class: 'money-ok' }, inr(pkg.left_inr))),
-      el('div', {}, el('dt', {}, 'Travel time'), el('dd', {}, hm(pkg.metrics.travel_minutes))),
-      stayStat(pkg),
-    ),
-    button('View package', 'btn btn-primary btn-view', () => openPackage(pkg.id)),
+    { class: 'pkg-card', 'aria-label': `${labelName[pkg.label] ?? 'Package'}: ${pkg.country}, ${inr(pkg.total_inr)}` },
+    el('div', { class: 'pkg-card-top' }, labelBadge(pkg.label),
+      el('h3', { class: 'pkg-country' }, `${pkg.country} · ${plural(nights, 'night')}`)),
+    el('div', { class: 'metric' },
+      el('span', { class: 'metric-value' }, ...cardValue(inr(pkg.total_inr), 'cheapest', win('cheapest'))),
+      el('span', { class: 'metric-caption' }, 'Total for everyone')),
+    routeChips(pkg.plan),
+    el('p', { class: 'pkg-dates' }, `${fmtDay(pkg.start_date)} → ${fmtDay(pkg.end_date)}`),
+    el('dl', { class: 'pkg-stats' },
+      el('div', {},
+        el('dt', {}, 'Travel time'),
+        el('dd', {}, ...cardValue(hm(pkg.metrics.travel_minutes), 'fastest', win('fastest')))),
+      el('div', {},
+        el('dt', {}, 'Average hotel stars'),
+        el('dd', {}, ...(hasStars
+          ? cardValue(stars(pkg.metrics.avg_stars), 'best_rated', win('best_rated'))
+          : ['Own stay'])))),
+    fitMeter(pkg.total_inr, pkg.budget_inr),
+    button(['View trip', icon('arrowRight')], 'btn btn-primary btn-view', () => openPackage(pkg.id)),
   );
 }
 
@@ -296,57 +433,93 @@ function refillForm(changes) {
     form[name].classList.add('flash');
     setTimeout(() => form[name].classList.remove('flash'), 1600);
   }
-  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  form.scrollIntoView({ behavior: scrollMode(), block: 'start' });
   submitBtn.focus({ preventScroll: true });
 }
 
+/** Scroll to one form field and put the cursor in it (no-package suggestions). */
+function focusField(name) {
+  const input = form[name];
+  if (!input) return;
+  input.scrollIntoView({ behavior: scrollMode(), block: 'center' });
+  input.focus({ preventScroll: true });
+}
+
+function stateCard(kind, iconName, ...body) {
+  return el('div', { class: `card state-card ${kind}` },
+    el('div', { class: 'state-icon', 'aria-hidden': 'true' }, icon(iconName)),
+    el('div', { class: 'state-body' }, ...body));
+}
+
 function overBudgetView(data) {
-  const box = el(
-    'div',
-    { class: 'banner banner-warn over-budget', role: 'status' },
-    el('strong', { class: 'banner-title' }, 'No package fits this budget'),
-    el(
-      'dl',
-      { class: 'pkg-stats' },
-      el('div', {}, el('dt', {}, 'Cheapest package'), el('dd', {}, inr(data.cheapest_total))),
-      el('div', {}, el('dt', {}, 'Over your budget by'), el('dd', { class: 'money-over' }, inr(data.over_by))),
-    ),
-  );
+  const cheapest = data.packages?.[0];
+  const budget = cheapest?.budget_inr ?? (data.cheapest_total - data.over_by);
+  const body = [
+    el('h2', {}, `No trip fits this budget yet`),
+    el('dl', { class: 'state-figures' },
+      el('div', {}, el('dt', {}, 'Cheapest trip'), el('dd', {}, inr(data.cheapest_total))),
+      el('div', {}, el('dt', {}, 'Your budget'), el('dd', {}, inr(budget))),
+      el('div', { class: 'money-over' }, el('dt', {}, 'Over by'), el('dd', {}, inr(data.over_by)))),
+    fitMeter(data.cheapest_total, budget),
+    cheapest ? routeChips(cheapest.plan) : null,
+  ];
   const suggestions = data.suggestions.slice(0, 3);
   if (suggestions.length) {
-    const row = el('div', { class: 'suggestions' });
+    const list = el('ul', { class: 'suggestions' });
     for (const s of suggestions) {
       const changes = suggestionChanges(s);
-      row.append(changes
-        ? button(s, 'btn btn-secondary btn-suggest', () => refillForm(changes))
-        : el('span', { class: 'suggest-text' }, s));
+      list.append(el('li', {}, changes
+        ? button([el('span', {}, s), icon('arrowRight')], 'btn btn-suggest', () => refillForm(changes))
+        : el('span', { class: 'suggest-text' }, s)));
     }
-    box.append(el('p', { class: 'suggest-title' }, 'Try one of these (fills in the form):'), row);
+    body.push(el('p', { class: 'suggest-title' }, 'Make it fit (fills in the form):'), list);
   }
   // Contract: OVER_BUDGET returns [cheapest] (saved by the server, left_inr negative).
-  const cheapestId = data.packages?.[0]?.id;
-  if (cheapestId) {
-    box.append(button('View cheapest package', 'btn btn-warn', () => openPackage(cheapestId)));
+  if (cheapest?.id) {
+    body.push(el('div', { class: 'state-actions' },
+      button('View the cheapest trip anyway', 'btn btn-secondary', () => openPackage(cheapest.id))));
   }
-  return box;
+  return el('div', { role: 'status' }, stateCard('over-budget', 'wallet', ...body));
 }
 
 function noPackageView(reasons) {
-  return el(
-    'div',
-    { class: 'banner banner-error no-package', role: 'alert' },
-    el('strong', { class: 'banner-title' }, 'No package for these choices'),
+  const windowReason = reasons.some((r) => r.startsWith(WINDOW_PREFIX));
+  const actions = [
+    button([icon('calendar'), windowReason ? 'Pick dates from 1 to 20 April' : 'Try another start date'],
+      'btn btn-secondary', () => focusField('startDate')),
+    button([icon('pin'), 'Try another country'], 'btn btn-secondary', () => focusField('country')),
+    button([icon('plane'), 'Fly from another city'], 'btn btn-secondary', () => focusField('departureAirport')),
+  ];
+  return el('div', { role: 'alert' }, stateCard(
+    'no-package', 'ban',
+    el('h2', {}, 'No trip for these choices'),
     el('p', {}, 'We could not build a valid trip because:'),
     el('ul', { class: 'reasons' }, ...reasons.map((r) => el('li', {}, r))),
-  );
+    el('p', { class: 'suggest-title' }, 'What you can change:'),
+    el('div', { class: 'state-actions' }, ...actions),
+  ));
+}
+
+function skeletonCards() {
+  const card = () => el('div', { class: 'pkg-card skeleton', 'aria-hidden': 'true' },
+    el('span', { class: 'sk sk-badge' }), el('span', { class: 'sk sk-big' }),
+    el('span', { class: 'sk sk-line' }), el('span', { class: 'sk sk-line short' }),
+    el('span', { class: 'sk sk-line' }), el('span', { class: 'sk sk-btn' }));
+  return [
+    el('div', { class: 'result-head' }, el('h2', {}, 'Finding trips that fit…')),
+    el('div', { class: 'pkg-grid' }, card(), card(), card()),
+  ];
 }
 
 function renderBuild(data) {
   switch (data.status) {
     case 'OK': {
       const pkgs = data.packages.slice(0, 3);
+      const p = pkgs[0];
       showResult(
-        el('h2', {}, `${plural(pkgs.length, 'package')} within your budget`),
+        el('div', { class: 'result-head' },
+          el('h2', {}, `${plural(pkgs.length, 'trip')} ${pkgs.length === 1 ? 'fits' : 'fit'} your budget`),
+          p ? el('p', { class: 'muted' }, `${p.country} · ${fmtDay(p.start_date)} → ${fmtDay(p.end_date)} · budget ${inr(p.budget_inr)}`) : null),
         el('div', { class: 'pkg-grid' }, ...pkgs.map(packageCard)),
       );
       break;
@@ -368,7 +541,7 @@ function renderBuild(data) {
     default:
       showResult(banner('error', 'Unexpected answer from the server.', [String(data.status)]));
   }
-  if (data.status !== 'INVALID_REQUEST') resultEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if (data.status !== 'INVALID_REQUEST') resultEl.scrollIntoView({ behavior: scrollMode(), block: 'start' });
 }
 
 // ---------- dates (strings only; weekday and day number via the UTC trick, CLAUDE.md rule 4) ----------
@@ -377,7 +550,8 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const utcDay = (d) => new Date(d + 'T00:00:00Z');
 const fmtDateShort = (d) => `${Number(d.slice(8, 10))} ${MONTHS[Number(d.slice(5, 7)) - 1]}`;
-const fmtDateLong = (d) => `${WEEKDAYS[utcDay(d).getUTCDay()]} ${fmtDateShort(d)} ${d.slice(0, 4)}`;
+const fmtDay = (d) => `${WEEKDAYS[utcDay(d).getUTCDay()]} ${fmtDateShort(d)}`;
+const fmtDateLong = (d) => `${fmtDay(d)} ${d.slice(0, 4)}`;
 const dateOf = (dt) => dt.slice(0, 10);
 const timeOf = (dt) => (dt.length >= 16 ? dt.slice(11, 16) : null);
 const toMin = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
@@ -386,20 +560,43 @@ const toMin = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
 
 const pkgView = document.getElementById('package-view');
 const bar = document.getElementById('budget-bar');
+const fitTrack = document.getElementById('fit-track');
+const fitDelta = document.getElementById('fit-delta');
 const TYPE_LABEL = { flight: 'Flight', transfer: 'Transfer', hotel: 'Hotel', attraction: 'Attraction' };
+let deltaTimer = 0;
 
-/** Bottom bar: total, budget and left/over. Call it with every package the backend sends back. */
-function updateBar(pkg) {
+/** Bottom bar: total, budget, left/over and the fit meter. `delta` (optional) shows the +₹/−₹ chip after a change. */
+function updateBar(pkg, delta = null) {
   const left = pkg.budget_inr - pkg.total_inr;
   document.getElementById('bar-total').textContent = inr(pkg.total_inr);
   document.getElementById('bar-budget').textContent = inr(pkg.budget_inr);
-  document.getElementById('bar-left-label').textContent = left >= 0 ? 'Left' : 'Over budget';
+  document.getElementById('bar-left-label').textContent = left >= 0 ? 'left' : 'over';
   document.getElementById('bar-left').textContent = inr(Math.abs(left));
   const box = document.getElementById('bar-left-box');
   box.classList.toggle('money-ok', left >= 0);
   box.classList.toggle('money-over', left < 0);
+  setMeter(fitTrack, pkg.total_inr, pkg.budget_inr);
   document.getElementById('export-btn').href = `/api/packages/${encodeURIComponent(pkg.id)}/export`;
-  document.getElementById('confirm-btn').hidden = pkg.status === 'BOOKED';
+  const booked = pkg.status === 'BOOKED';
+  document.getElementById('confirm-btn').hidden = booked;
+  let bookedTag = bar.querySelector('.bar-booked');
+  if (booked && !bookedTag) {
+    bookedTag = el('span', { class: 'bar-booked' }, icon('check'), 'Booked');
+    bar.querySelector('.bar-actions').append(bookedTag);
+  }
+  if (bookedTag) bookedTag.hidden = !booked;
+
+  clearTimeout(deltaTimer);
+  fitDelta.classList.remove('show', 'up', 'down');
+  if (delta != null) {
+    void fitDelta.offsetWidth; // restart the pop animation
+    fitDelta.textContent = fmtDelta(delta);
+    fitDelta.classList.add('show', delta > 0 ? 'up' : delta < 0 ? 'down' : 'same');
+    fitTrack.classList.remove('pulse');
+    void fitTrack.offsetWidth;
+    fitTrack.classList.add('pulse');
+    deltaTimer = setTimeout(() => fitDelta.classList.remove('show'), 5000);
+  }
   bar.hidden = false;
 }
 
@@ -456,25 +653,25 @@ function eventActions(ev, pkg) {
   if (item.type === 'flight') {
     // The outbound flight leaves on or before start_date; the return flight leaves on end_date.
     const direction = item.start < pkg.end_date ? 'outbound' : 'return';
-    acts.push(button('Change flight', 'btn btn-small', () => openOptions(
+    acts.push(button([icon('swap'), 'Change flight'], 'btn btn-small btn-secondary', () => openOptions(
       { kind: 'flight', direction },
       direction === 'outbound' ? 'Change outbound flight' : 'Change return flight',
       (o) => ({ type: 'swap_flight', direction, flight_id: o.id }),
-    )));
+    ), { 'aria-label': `Change ${direction} flight ${item.name}` }));
   } else if (ev.kind === 'check-in') {
-    acts.push(button('Change hotel', 'btn btn-small', () => openOptions(
+    acts.push(button([icon('swap'), 'Change hotel'], 'btn btn-small btn-secondary', () => openOptions(
       { kind: 'hotel', city: item.city },
       `Change hotel in ${item.city}`,
       (o) => {
         const [hotel_id, room_id] = o.id.split('|');
         return { type: 'swap_hotel', city: item.city, hotel_id, room_id };
       },
-    )));
+    ), { 'aria-label': `Change hotel in ${item.city}` }));
   } else if (item.type === 'attraction') {
-    acts.push(button('Remove', 'btn btn-small btn-danger', () => sendChange(
+    acts.push(button([icon('trash'), 'Remove'], 'btn btn-small btn-danger', () => sendChange(
       { type: 'remove_attraction', item_id: item.item_id },
       `${item.name} removed`,
-    )));
+    ), { 'aria-label': `Remove ${item.name}` }));
   }
   return acts.length ? el('div', { class: 'tl-actions' }, ...acts) : null;
 }
@@ -489,31 +686,35 @@ function warningsFor(ev) {
   return all;
 }
 
+/** Left column of a row: time range (flights, transfers), opening hours (attractions) or check-in/out. */
+function eventTime(ev) {
+  const { item } = ev;
+  if (ev.kind === 'check-in') return el('span', { class: 'tl-time' }, 'Check-in');
+  if (ev.kind === 'check-out') return el('span', { class: 'tl-time' }, 'Check-out');
+  if (item.type === 'attraction') {
+    // Show when the attraction is open, not the planned visit slot.
+    const hours = attractionHours.get(item.catalog_id);
+    return el('span', { class: 'tl-time' }, hours ? `${hours.open_from} – ${hours.open_until}` : '', hours ? el('small', {}, 'open') : null);
+  }
+  const end = timeOf(item.end ?? '');
+  const nextDay = end && dateOf(item.end) !== dateOf(item.start);
+  return el('span', { class: 'tl-time' }, end ? `${ev.time} – ${end}` : (ev.time ?? ''),
+    nextDay ? el('small', {}, `arrives ${fmtDateShort(dateOf(item.end))}`) : null);
+}
+
 function eventNode(ev, pkg) {
   const { item } = ev;
   let title = item.name;
-  let when = ev.time ?? '';
   const details = [];
 
   if (ev.kind === 'check-in') {
     title = `Check in: ${item.name}`;
-    when = 'Check-in';
     details.push(`${plural(item.quantity, 'room')} · until ${fmtDateShort(dateOf(item.end))}`);
   } else if (ev.kind === 'check-out') {
     title = `Check out: ${item.name}`;
-    when = 'Check-out';
   } else if (item.type === 'attraction') {
-    // Show when the attraction is open, not the planned visit slot.
-    const hours = attractionHours.get(item.catalog_id);
-    when = hours ? 'Open' : '';
-    if (hours) details.push(`${hours.open_from} – ${hours.open_until}`);
     details.push(plural(item.quantity, 'ticket'));
   } else {
-    const end = timeOf(item.end ?? '');
-    if (end) {
-      const nextDay = dateOf(item.end) !== dateOf(item.start);
-      details.push(`${ev.time} – ${end}${nextDay ? ` (${fmtDateShort(dateOf(item.end))})` : ''}`);
-    }
     if (item.type === 'flight') details.push(plural(item.quantity, 'seat'));
     if (item.type === 'transfer') details.push(`× ${item.quantity}`);
   }
@@ -521,16 +722,10 @@ function eventNode(ev, pkg) {
   const body = el(
     'div',
     { class: 'tl-body' },
-    el(
-      'div',
-      { class: 'tl-head' },
-      el('span', { class: `tl-type tl-${item.type}` }, TYPE_LABEL[item.type] ?? item.type),
-      el('strong', { class: 'tl-title' }, title),
-      ev.kind === 'check-out' ? null : el('span', { class: 'tl-price' }, inr(item.price_inr)),
-    ),
-    details.length ? el('p', { class: 'tl-detail muted' }, details.join(' · ')) : null,
-    ...warningsFor(ev).map((w) => el('p', { class: 'tl-warning' }, w)),
-    eventActions(ev, pkg),
+    el('div', { class: 'tl-head' },
+      el('span', { class: 'tl-type' }, TYPE_LABEL[item.type] ?? item.type),
+      el('strong', { class: 'tl-title' }, title)),
+    details.length ? el('p', { class: 'tl-detail' }, details.join(' · ')) : null,
   );
   if (item.type === 'attraction' && item.catalog_id) {
     // Catalog images are images/attractions/<attraction_id>.jpg; hide the frame if one is missing.
@@ -539,59 +734,101 @@ function eventNode(ev, pkg) {
       src: `/images/attractions/${encodeURIComponent(item.catalog_id)}.jpg`,
       alt: item.name,
       loading: 'lazy',
+      width: '280',
+      height: '158',
     });
     img.addEventListener('error', () => img.remove());
-    body.prepend(img);
+    body.append(img);
   }
-  return el('li', { class: `tl-item tl-item-${ev.kind}` }, el('span', { class: 'tl-time' }, when), body);
+  for (const w of warningsFor(ev)) body.append(el('p', { class: 'tl-warning' }, icon('alert'), el('span', {}, w)));
+  const acts = eventActions(ev, pkg);
+  if (acts) body.append(acts);
+
+  return el(
+    'li',
+    { class: `tl-item tl-item-${ev.kind} tl-${item.type}` },
+    eventTime(ev),
+    el('span', { class: 'tl-icon', 'aria-hidden': 'true' }, icon(TYPE_ICON[item.type] ?? 'check')),
+    body,
+    el('span', { class: 'tl-price' }, ev.kind === 'check-out' ? '' : inr(item.price_inr)),
+  );
+}
+
+let ticketSeq = 0;
+
+/** Boarding-pass ticket for a booked package: route, dates, travellers, the 10-digit number with Copy, BOOKED stamp. */
+function ticketNode(pkg, ref, { createdAt = null, animate = false } = {}) {
+  const id = `ref-field-${++ticketSeq}`;
+  const t = pkg.traveler ?? {};
+  const people = plural(t.adults, 'adult') + (t.children ? `, ${plural(t.children, 'child', 'children')}` : '');
+  const field = el('input', { id, class: 'ref-field', type: 'text', readonly: '', value: ref, spellcheck: 'false' });
+  const copy = button([icon('copy'), 'Copy'], 'btn btn-secondary btn-copy', async () => {
+    let ok = false;
+    try {
+      await navigator.clipboard.writeText(ref);
+      ok = true;
+    } catch {
+      field.select();
+      ok = document.execCommand?.('copy') ?? false;
+    }
+    copy.replaceChildren(icon(ok ? 'check' : 'copy'), ok ? 'Copied' : 'Select and copy');
+    setTimeout(() => copy.replaceChildren(icon('copy'), 'Copy'), 2000);
+  }, { 'aria-label': 'Copy reservation number' });
+  return el(
+    'div',
+    { class: `ticket${animate ? ' stamp-in' : ''}` },
+    el('span', { class: 'stamp', 'aria-hidden': 'true' }, 'BOOKED'),
+    el('div', { class: 'ticket-main' },
+      el('p', { class: 'ticket-kicker' }, icon('plane'), 'FitMyTrip · Reservation'),
+      el('p', { class: 'ticket-route' }, t.home_airport ?? '', icon('arrowRight'), pkg.country),
+      routeChips(pkg.plan),
+      el('dl', { class: 'ticket-facts' },
+        el('div', {}, el('dt', {}, 'Dates'), el('dd', {}, `${fmtDay(pkg.start_date)} → ${fmtDay(pkg.end_date)}`)),
+        el('div', {}, el('dt', {}, 'Travellers'), el('dd', {}, people)),
+        el('div', {}, el('dt', {}, 'Total paid'), el('dd', {}, inr(pkg.total_inr))),
+        // created_at is SQLite datetime('now'): "YYYY-MM-DD HH:MM:SS" in UTC.
+        createdAt ? el('div', {}, el('dt', {}, 'Booked'), el('dd', {}, `${createdAt.slice(0, 16)} UTC`)) : null)),
+    el('div', { class: 'ticket-stub' },
+      el('label', { for: id }, 'Reservation number'),
+      el('div', { class: 'ref-row' }, field, copy),
+      el('p', { class: 'ticket-note' }, 'Use it with “Find my reservation” to open this trip later.')),
+  );
 }
 
 /** `reservation` (optional) = { reference, created_at } from GET /api/reservations/:ref: read-only summary mode. */
-function renderPackage(pkg, reservation = null) {
-  const cities = pkg.plan.map((p) => `${p.city} ${p.nights}n`).join(' → ');
+function renderPackage(pkg, reservation = null, delta = null) {
   const ref = reservation?.reference ?? referenceOf(pkg);
   const t = pkg.traveler ?? {};
+  const nights = pkg.plan.reduce((n, p) => n + p.nights, 0);
   const people = plural(t.adults, 'adult') + (t.children ? `, ${plural(t.children, 'child', 'children')}` : '');
-  const header = el(
-    'div',
-    { class: 'card pkg-header' },
-    button('← New search', 'btn btn-link', closePackage),
-    el(
-      'div',
-      { class: 'pkg-badges' },
-      pkg.label ? el('span', { class: `pkg-label pkg-${pkg.label}` }, labelName[pkg.label] ?? pkg.label) : null,
-      el('span', { class: `pkg-label pkg-status-${String(pkg.status).toLowerCase()}` },
-        pkg.status === 'BOOKED' ? 'Booked' : 'Planned'),
-    ),
-    reservation ? el('p', { class: 'res-kicker' }, 'Reservation summary') : null,
-    el('h2', {}, `${pkg.country}: ${cities}`),
-    el('p', { class: 'muted' }, `${fmtDateLong(pkg.start_date)} to ${fmtDateLong(pkg.end_date)} · ${people}`),
-    pkg.metrics.avg_stars == null
-      ? el('p', { class: 'muted' }, 'No hotel included — you arrange your own stay.')
-      : null,
-    ref ? el(
-      'p',
-      { class: 'res-line' },
-      'Reservation number ',
-      el('strong', { class: 'res-number' }, ref),
-      // created_at is SQLite datetime('now'): "YYYY-MM-DD HH:MM:SS" in UTC.
-      reservation?.created_at ? el('span', { class: 'muted' }, ` · booked ${reservation.created_at.slice(0, 16)} UTC`) : null,
-    ) : null,
-    el(
-      'dl',
-      { class: 'pkg-stats' },
-      el('div', {}, el('dt', {}, 'Travel time'), el('dd', {}, hm(pkg.metrics.travel_minutes))),
-      stayStat(pkg),
-    ),
-  );
-
+  const ages = t.child_ages?.length ? ` (age ${t.child_ages.join(', ')})` : '';
   const editable = pkg.status !== 'BOOKED';
-  if (editable) {
-    header.append(el('div', { class: 'pkg-header-actions' }, button('Change cities', 'btn btn-secondary', () =>
+
+  const fact = (iconName, term, value) => el('div', {}, icon(iconName), el('dt', {}, term), el('dd', {}, value));
+  const summary = el(
+    'section',
+    { class: 'card summary', 'aria-labelledby': 'summary-title' },
+    el('div', { class: 'summary-badges' },
+      labelBadge(pkg.label),
+      el('span', { class: `pkg-label pkg-status-${String(pkg.status).toLowerCase()}` },
+        pkg.status === 'BOOKED' ? 'Booked' : 'Planned')),
+    reservation ? el('p', { class: 'res-kicker', style: 'margin-top:8px' }, 'Reservation summary') : null,
+    el('h2', { id: 'summary-title' }, `${pkg.country} · ${plural(nights, 'night')}`),
+    routeChips(pkg.plan),
+    el('dl', { class: 'facts' },
+      fact('calendar', 'Dates', `${fmtDateLong(pkg.start_date)} → ${fmtDateLong(pkg.end_date)}`),
+      fact('users', 'Travellers', people + ages),
+      t.home_airport ? fact('plane', 'Flying from', t.home_airport) : null,
+      fact('clock', 'Travel time', hm(pkg.metrics.travel_minutes)),
+      pkg.metrics.avg_stars == null ? null : fact('star', 'Average hotel stars', stars(pkg.metrics.avg_stars))),
+    pkg.metrics.avg_stars == null
+      ? el('p', { class: 'muted own-stay' }, 'No hotel included — you arrange your own stay.')
+      : null,
+    editable ? el('div', { class: 'summary-actions' }, button([icon('map'), 'Change cities and nights'], 'btn btn-secondary', () =>
       openOptions({ kind: 'city_plan' }, 'Change cities and nights', (o) => ({
         type: 'set_city_plan', cities: o.detail?.cities ?? parsePlanId(o.id),
-      })))));
-  }
+      })))) : null,
+  );
 
   const timeline = el('ol', { class: 'timeline' });
   const start = utcDay(pkg.start_date).getTime();
@@ -600,45 +837,102 @@ function renderPackage(pkg, reservation = null) {
     // Attractions can be added on any night of the stay (start_date .. end_date − 1).
     const city = cityOn(pkg, date);
     const canAdd = editable && date >= pkg.start_date && date < pkg.end_date;
+    const list = el('ul', { class: 'tl-list' }, ...evs.map((ev) => eventNode(ev, pkg)));
+    if (canAdd) {
+      list.append(el('li', { class: 'tl-add-row' },
+        el('span', { class: 'tl-add-dot', 'aria-hidden': 'true' }, icon('plus')),
+        button([icon('plus'), `Add attraction in ${city}`], 'btn btn-small btn-ghost btn-add', () => openOptions(
+          { kind: 'attraction', date },
+          `Add an attraction on ${fmtDateLong(date)} (${city})`,
+          (o) => ({ type: 'add_attraction', attraction_id: o.id, date }),
+        ), { 'aria-label': `Add an attraction on ${fmtDay(date)} in ${city}` })));
+    }
     timeline.append(el(
       'li',
       { class: 'tl-day' },
-      el('h3', { class: 'tl-date' }, fmtDateLong(date),
-        el('span', { class: 'muted' }, ` · ${n >= 1 ? `Day ${n}` : 'Before day 1'} · ${city}`)),
-      el('ul', { class: 'tl-list' }, ...evs.map((ev) => eventNode(ev, pkg))),
-      canAdd ? button('+ Add attraction', 'btn btn-small btn-add', () => openOptions(
-        { kind: 'attraction', date },
-        `Add an attraction on ${fmtDateLong(date)} (${city})`,
-        (o) => ({ type: 'add_attraction', attraction_id: o.id, date }),
-      )) : null,
+      el('h3', { class: 'tl-date' },
+        el('span', { class: 'tl-daynum' }, n >= 1 ? `Day ${n}` : 'Travel day'),
+        el('span', { class: 'tl-dot', 'aria-hidden': 'true' }, '·'),
+        el('span', {}, fmtDay(date)),
+        el('span', { class: 'tl-dot', 'aria-hidden': 'true' }, '·'),
+        el('span', { class: 'tl-city' }, city)),
+      list,
     ));
   }
 
+  const aside = el('aside', { class: 'pkg-aside', 'aria-label': 'Trip summary' },
+    ref ? ticketNode(pkg, ref, { createdAt: reservation?.created_at }) : null,
+    summary);
+
   pkgView.replaceChildren(
-    header,
-    el(
-      'section',
-      { class: 'card' },
-      el('h2', {}, 'Day by day'),
-      timeline,
-      el('p', { class: 'credits' }, 'Attraction photos from Wikimedia Commons. ',
-        el('a', { href: '/images/ATTRIBUTIONS.md', target: '_blank', rel: 'noopener' }, 'Photo credits')),
-    ),
+    el('div', { class: 'pkg-topline' },
+      button([icon('arrowLeft'), 'New search'], 'btn-link', closePackage)),
+    el('div', { class: 'pkg-layout' },
+      el('div', { class: 'pkg-main' },
+        el('section', { class: 'card timeline-card', 'aria-labelledby': 'tl-title' },
+          el('div', { class: 'timeline-head' },
+            el('h2', { id: 'tl-title' }, 'Day by day'),
+            el('p', { class: 'muted' }, editable ? 'Change, remove or add anything; the fit bar updates.' : 'Read-only: this trip is booked.')),
+          timeline,
+          el('p', { class: 'credits' }, 'Attraction photos from Wikimedia Commons. ',
+            el('a', { href: '/images/ATTRIBUTIONS.md', target: '_blank', rel: 'noopener' }, 'Photo credits')))),
+      aside),
   );
   currentPkg = pkg;
-  updateBar(pkg);
+  updateBar(pkg, delta);
+}
+
+function packageSkeleton(text) {
+  return el('div', { class: 'pkg-layout skeleton', 'aria-busy': 'true' },
+    el('div', { class: 'card' },
+      el('p', { class: 'sr-only' }, text),
+      el('span', { class: 'sk sk-big', 'aria-hidden': 'true' }),
+      ...Array.from({ length: 6 }, (_, i) => el('span', { class: `sk sk-line${i % 2 ? ' short' : ''}`, style: 'margin-top:16px', 'aria-hidden': 'true' }))),
+    el('div', { class: 'card', 'aria-hidden': 'true' },
+      el('span', { class: 'sk sk-badge' }),
+      el('span', { class: 'sk sk-line', style: 'margin-top:16px' }),
+      el('span', { class: 'sk sk-line short', style: 'margin-top:12px' })));
 }
 
 // ---------- changes: options modal + POST /change ----------
 
 let currentPkg = null;
 let changing = false;
+let returnFocus = null;
 const noticeEl = document.getElementById('change-notice');
 const dialog = document.getElementById('options-dialog');
 
 // Backdrop click closes the modal (clicks inside land on child elements, not the dialog itself).
 dialog.addEventListener('click', (e) => { if (e.target === dialog && !changing) dialog.close(); });
 dialog.addEventListener('cancel', (e) => { if (changing) e.preventDefault(); });
+
+// Keep Tab inside the open dialog (showModal makes the page inert; this also stops Tab escaping to browser chrome).
+dialog.addEventListener('keydown', (e) => {
+  if (e.key !== 'Tab') return;
+  const focusables = [...dialog.querySelectorAll('button:not(:disabled), a[href], input:not(:disabled), [tabindex]:not([tabindex="-1"])')]
+    .filter((n) => n.offsetParent !== null);
+  if (!focusables.length) return;
+  const first = focusables[0];
+  const last = focusables.at(-1);
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+});
+
+// Give focus back to the button that opened the dialog; if a re-render removed it, to the change toast or the page.
+dialog.addEventListener('close', () => {
+  const target = returnFocus;
+  returnFocus = null;
+  if (noticeEl.contains(document.activeElement)) return; // sendChange already moved focus to its toast
+  if (target?.isConnected && target.getClientRects().length) target.focus({ preventScroll: true });
+  else document.getElementById('main').focus({ preventScroll: true });
+});
+
+function openDialog() {
+  if (!dialog.open) {
+    returnFocus = document.activeElement;
+    dialog.showModal();
+  }
+}
 
 const fmtDelta = (n) => (n > 0 ? `+${inr(n)}` : n < 0 ? `−${inr(-n)}` : `±${inr(0)}`);
 
@@ -664,73 +958,121 @@ function optionInfo(d = {}) {
   return bits.join(' · ');
 }
 
-function optionNode(o, makeChange, successText) {
+const KIND_ICON = { hotel: 'bed', flight: 'plane', attraction: 'ticket', city_plan: 'map' };
+
+/** Catalog photo (detail.image = "images/…") or a type icon when there is none or it fails to load. */
+function optionMedia(o, kind) {
+  const box = el('div', { class: 'opt-media' });
+  const fallback = () => box.replaceChildren(icon(KIND_ICON[kind] ?? 'check'));
+  const path = o.detail?.image;
+  if (typeof path === 'string' && /^images\/[\w./-]+$/.test(path)) {
+    const img = el('img', { src: `/${path}`, alt: '', loading: 'lazy', width: '88', height: '66' });
+    img.addEventListener('error', fallback);
+    box.append(img);
+  } else {
+    fallback();
+  }
+  return box;
+}
+
+function optionNode(o, makeChange, successText, kind) {
   const current = o.detail?.current === true;
   const delta = o.price_delta_inr == null ? null : Number(o.price_delta_inr); // null on invalid options
   const info = optionInfo(o.detail);
-  const b = el(
-    'button',
-    { type: 'button', class: `opt${o.valid ? '' : ' opt-invalid'}${current ? ' opt-current' : ''}` },
-    el(
-      'span',
-      { class: 'opt-main' },
+  const chipCls = delta > 0 ? 'delta-up' : delta < 0 ? 'delta-down' : '';
+  const chipText = current ? 'Current' : delta == null ? '—' : fmtDelta(delta);
+  const side = el('div', { class: 'opt-side' },
+    el('span', { class: `opt-delta ${current ? '' : chipCls}`, 'aria-label': current ? 'Current choice'
+      : delta == null ? 'No price' : `${delta > 0 ? 'Costs' : delta < 0 ? 'Saves' : 'Same price'} ${delta === 0 ? '' : inr(Math.abs(delta))}`.trim() },
+    chipText));
+  if (o.valid && !current) {
+    side.append(button('Select', 'btn btn-primary btn-small opt-select',
+      () => sendChange(makeChange(o), `${successText}: ${o.label}`), { 'aria-label': `Select ${o.label}, ${chipText}` }));
+  } else if (!o.valid) {
+    side.append(el('span', { class: 'opt-info' }, 'Not available'));
+  }
+  return el(
+    'div',
+    { class: `opt${o.valid ? '' : ' opt-invalid'}${current ? ' opt-current' : ''}`, role: 'listitem' },
+    optionMedia(o, kind),
+    el('div', { class: 'opt-main' },
       el('strong', { class: 'opt-label' }, o.label),
-      info ? el('span', { class: 'opt-info muted' }, info) : null,
-      !o.valid && o.reason ? el('span', { class: 'opt-reason' }, o.reason) : null,
-    ),
-    el(
-      'span',
-      { class: `opt-delta ${delta > 0 ? 'delta-up' : delta < 0 ? 'delta-down' : ''}` },
-      current ? 'Current' : delta == null ? '—' : fmtDelta(delta),
-    ),
+      info ? el('span', { class: 'opt-info' }, info) : null,
+      !o.valid && o.reason ? el('span', { class: 'opt-reason' }, o.reason) : null),
+    side,
   );
-  b.disabled = !o.valid || current;
-  if (!o.valid) b.setAttribute('aria-label', `${o.label}. Not available: ${o.reason ?? 'not valid'}`);
-  b.addEventListener('click', () => sendChange(makeChange(o), `${successText}: ${o.label}`));
-  return b;
+}
+
+function modalHead(title) {
+  return el('div', { class: 'modal-head' },
+    el('h2', { id: 'modal-title' }, title),
+    button(icon('x'), 'btn btn-icon modal-close', () => dialog.close(), { 'aria-label': 'Close' }));
 }
 
 /** Opens the modal and fills it from GET /api/packages/:id/options?<query>. */
 async function openOptions(query, title, makeChange) {
   const pkg = currentPkg;
   if (!pkg || changing) return;
-  const list = el('div', { class: 'opt-list' }, el('p', { class: 'muted' }, 'Loading options…'));
+  const list = el('div', { class: 'opt-list', role: 'list', 'aria-busy': 'true' },
+    ...Array.from({ length: 3 }, () => el('div', { class: 'opt skeleton', 'aria-hidden': 'true' },
+      el('span', { class: 'sk', style: 'width:88px;height:66px' }),
+      el('div', { class: 'opt-main' }, el('span', { class: 'sk sk-line' }), el('span', { class: 'sk sk-line short', style: 'margin-top:8px' })))),
+    el('p', { class: 'sr-only' }, 'Loading options…'));
+  const credits = el('p', { class: 'credits', hidden: '' }, 'Photos from Wikimedia Commons. ',
+    el('a', { href: '/images/ATTRIBUTIONS.md', target: '_blank', rel: 'noopener' }, 'Photo credits'));
   dialog.replaceChildren(
-    el(
-      'div',
-      { class: 'modal-head' },
-      el('h2', { id: 'modal-title' }, title),
-      button('✕', 'btn btn-icon modal-close', () => dialog.close()),
-    ),
+    modalHead(title),
     el('p', { class: 'muted modal-sub' }, 'Prices are the change to your package total.'),
     list,
+    credits,
   );
-  dialog.showModal();
+  openDialog();
   try {
     const res = await fetch(`/api/packages/${encodeURIComponent(pkg.id)}/options?${new URLSearchParams(query)}`);
     const data = await res.json().catch(() => null);
     if (!res.ok || !Array.isArray(data)) throw new Error(data?.error || `HTTP ${res.status}`);
     if (!dialog.open || currentPkg !== pkg) return;
     const shortTitle = title.split(' (')[0];
+    list.removeAttribute('aria-busy');
     list.replaceChildren(...(data.length
-      ? data.map((o) => optionNode(o, makeChange, shortTitle))
+      ? data.map((o) => optionNode(o, makeChange, shortTitle, query.kind))
       : [el('p', { class: 'muted' }, 'No options available.')]));
+    credits.hidden = !data.some((o) => o.detail?.image);
   } catch (err) {
     if (dialog.open) list.replaceChildren(banner('error', 'Could not load the options.', [err.message]));
   }
 }
 
-function showNotice(node) {
+/** Toast above the fit bar: ok (teal), warn (saffron, e.g. over budget or auto-fixes), error (refused / failed). */
+function toast(kind, title, lines = [], sub = null) {
+  const iconName = kind === 'error' ? 'ban' : kind === 'warn' ? 'alert' : 'check';
+  return el(
+    'div',
+    { class: `toast toast-${kind}`, role: kind === 'error' ? 'alert' : 'status', tabindex: '-1' },
+    el('span', { class: 'toast-icon', 'aria-hidden': 'true' }, icon(iconName)),
+    el('strong', { class: 'toast-title' }, ...(Array.isArray(title) ? title : [title])),
+    sub ? el('p', { class: 'toast-sub' }, sub) : null,
+    lines.length ? el('ul', {}, ...lines.map((l) => el('li', {}, l))) : null,
+  );
+}
+
+let noticeTimer = 0;
+
+function showNotice(node, { autoHide = false } = {}) {
+  clearTimeout(noticeTimer);
   noticeEl.replaceChildren();
   if (!node) return;
-  node.append(button('✕', 'btn btn-icon notice-close', () => showNotice(null)));
+  node.append(button(icon('x'), 'btn btn-icon notice-close', () => showNotice(null), { 'aria-label': 'Dismiss message' }));
   noticeEl.append(node);
+  if (autoHide) noticeTimer = setTimeout(() => { if (noticeEl.contains(node)) showNotice(null); }, 6000);
 }
 
 /** POST a change; ok → re-render package + bar and show warnings; refused → reasons, old package kept. */
 async function sendChange(change, successText) {
   const pkg = currentPkg;
   if (!pkg || changing) return;
+  // The re-render removes the button that started the change (row action or dialog opener): move focus to the toast.
+  const focusToast = () => noticeEl.querySelector('.toast')?.focus({ preventScroll: true });
   changing = true;
   dialog.setAttribute('aria-busy', 'true');
   pkgView.classList.add('busy');
@@ -745,21 +1087,31 @@ async function sendChange(change, successText) {
     if (!res.ok || !data?.package) throw new Error(data?.error || `HTTP ${res.status}`);
     if (currentPkg !== pkg) return; // user left this package meanwhile
     dialog.close();
-    renderPackage(data.package); // refused → the unchanged package, so the view and bar stay as they were
+    // refused → the unchanged package, so the view and bar stay as they were
+    renderPackage(data.package, null, data.ok ? (data.delta_inr ?? 0) : null);
     if (data.ok) {
       const p = data.package;
       const over = p.total_inr - p.budget_inr;
       const lines = [...(data.warnings ?? [])];
       if (over > 0) lines.push(`Your package is now ${inr(over)} over budget.`);
-      showNotice(banner(over > 0 ? 'warn' : 'ok', `${successText} (${fmtDelta(data.delta_inr ?? 0)})`, lines));
+      const hotelIssue = (data.warnings ?? []).some((w) => !/^Fixed:/i.test(w) && /check-in|check-out|check out|after midnight/i.test(w));
+      const kind = over > 0 || hotelIssue ? 'warn' : 'ok';
+      showNotice(toast(kind,
+        [`${successText} `, el('span', { class: 'money' }, `(${fmtDelta(data.delta_inr ?? 0)})`)],
+        lines,
+        lines.length ? 'We adjusted the rest of the trip to match:' : null),
+      { autoHide: !lines.length });
     } else {
-      showNotice(banner('error', 'Change not made. Your package is unchanged.',
-        data.reasons?.length ? data.reasons : ['The change was refused.']));
+      showNotice(toast('error', 'Change refused',
+        data.reasons?.length ? data.reasons : ['The change was refused.'],
+        'Your package is unchanged.'));
     }
+    focusToast();
   } catch (err) {
     if (currentPkg !== pkg) return;
     dialog.close();
-    showNotice(banner('error', 'Could not apply the change. Your package is unchanged.', [err.message]));
+    showNotice(toast('error', 'Could not apply the change', [err.message], 'Your package is unchanged.'));
+    focusToast();
   } finally {
     changing = false;
     dialog.removeAttribute('aria-busy');
@@ -780,9 +1132,19 @@ function showFormView() {
   leavePackage();
   pkgView.hidden = true;
   bar.hidden = true;
+  requestCard.hidden = false;
   form.hidden = false;
   quickForm.hidden = false;
   resultEl.hidden = resultEl.childElementCount === 0;
+}
+
+function hideFormView() {
+  requestCard.hidden = true;
+  form.hidden = true;
+  quickForm.hidden = true;
+  resultEl.hidden = true;
+  bar.hidden = true;
+  pkgView.hidden = false;
 }
 
 let loadSeq = 0;
@@ -790,12 +1152,8 @@ let loadSeq = 0;
 async function loadPackageView(id) {
   const seq = ++loadSeq;
   leavePackage();
-  form.hidden = true;
-  quickForm.hidden = true;
-  resultEl.hidden = true;
-  bar.hidden = true;
-  pkgView.hidden = false;
-  pkgView.replaceChildren(el('div', { class: 'card' }, el('p', { class: 'muted' }, 'Loading package…')));
+  hideFormView();
+  pkgView.replaceChildren(packageSkeleton('Loading package…'));
   window.scrollTo({ top: 0 });
   try {
     const res = await fetch(`/api/packages/${encodeURIComponent(id)}`);
@@ -805,10 +1163,9 @@ async function loadPackageView(id) {
     if (seq === loadSeq) renderPackage(pkg);
   } catch (err) {
     if (seq !== loadSeq) return;
-    pkgView.replaceChildren(
-      banner('error', 'Could not load the package.', [err.message]),
-      button('← New search', 'btn btn-secondary', closePackage),
-    );
+    pkgView.replaceChildren(emptyState('alert', 'Could not load the package', err.message, [
+      button([icon('arrowLeft'), 'New search'], 'btn btn-primary', closePackage),
+    ]));
   }
 }
 
@@ -824,6 +1181,19 @@ function closePackage() {
   window.scrollTo({ top: 0 });
 }
 
+document.querySelector('.brand').addEventListener('click', (e) => {
+  e.preventDefault();
+  closePackage();
+});
+
+function emptyState(iconName, title, text, actions = []) {
+  return el('div', { class: 'card empty-state', role: 'alert' },
+    el('div', { class: 'empty-art', 'aria-hidden': 'true' }, icon(iconName)),
+    el('h2', {}, title),
+    typeof text === 'string' ? el('p', {}, text) : text,
+    actions.length ? el('div', { class: 'state-actions' }, ...actions) : null);
+}
+
 // ---------- confirm booking ----------
 
 const confirmBtn = document.getElementById('confirm-btn');
@@ -833,16 +1203,17 @@ confirmBtn.addEventListener('click', () => {
   const pkg = currentPkg;
   if (!pkg || changing || pkg.status === 'BOOKED') return;
   const over = pkg.total_inr - pkg.budget_inr;
-  const go = button('Confirm booking', 'btn btn-primary', () => confirmBooking(pkg));
+  const go = button([icon('check'), 'Confirm booking'], 'btn btn-primary', () => confirmBooking(pkg));
   dialog.replaceChildren(
-    el('div', { class: 'modal-head' }, el('h2', { id: 'modal-title' }, 'Confirm this package?'),
-      button('✕', 'btn btn-icon modal-close', () => dialog.close())),
-    el('p', {}, `${pkg.country}, ${fmtDateShort(pkg.start_date)} to ${fmtDateShort(pkg.end_date)}. `,
-      'Total ', el('strong', {}, inr(pkg.total_inr)), '. After confirming, the package can no longer be changed.'),
-    over > 0 ? el('p', { class: 'opt-reason' }, `This is ${inr(over)} over your budget.`) : null,
-    el('div', { class: 'modal-actions' }, button('Cancel', 'btn btn-secondary', () => dialog.close()), go),
+    modalHead('Confirm this trip?'),
+    el('div', { class: 'modal-body' },
+      el('p', {}, `${pkg.country}, ${fmtDay(pkg.start_date)} to ${fmtDay(pkg.end_date)}. `,
+        'Total ', el('strong', { class: 'money' }, inr(pkg.total_inr)), '.'),
+      el('p', { class: 'muted' }, 'After confirming, the trip can no longer be changed.'),
+      over > 0 ? el('p', { class: 'banner banner-error' }, `This is ${inr(over)} over your budget.`) : null,
+      el('div', { class: 'modal-actions' }, button('Cancel', 'btn btn-secondary', () => dialog.close()), go)),
   );
-  dialog.showModal();
+  openDialog();
   go.focus();
 });
 
@@ -863,13 +1234,13 @@ async function confirmBooking(pkg) {
       showReference(data.reference);
     } else {
       dialog.close();
-      showNotice(banner('error', 'Booking not confirmed. Nothing was booked.',
-        data.reasons?.length ? data.reasons : ['The booking was refused.']));
+      showNotice(toast('error', 'Booking not confirmed',
+        data.reasons?.length ? data.reasons : ['The booking was refused.'], 'Nothing was booked.'));
     }
   } catch (err) {
     if (currentPkg !== pkg) return;
     dialog.close();
-    showNotice(banner('error', 'Could not confirm the booking. Nothing was booked.', [err.message]));
+    showNotice(toast('error', 'Could not confirm the booking', [err.message], 'Nothing was booked.'));
   } finally {
     changing = false;
     dialog.removeAttribute('aria-busy');
@@ -878,30 +1249,18 @@ async function confirmBooking(pkg) {
 }
 
 function showReference(ref) {
-  const field = el('input', { class: 'ref-field', type: 'text', readonly: '', value: ref, 'aria-label': 'Reservation number' });
-  const copy = button('Copy', 'btn btn-secondary btn-copy', async () => {
-    let ok = false;
-    try {
-      await navigator.clipboard.writeText(ref);
-      ok = true;
-    } catch {
-      field.select();
-      ok = document.execCommand?.('copy') ?? false;
-    }
-    copy.textContent = ok ? 'Copied ✓' : 'Select and copy';
-    setTimeout(() => { copy.textContent = 'Copy'; }, 2000);
-  });
+  const ticket = ticketNode(currentPkg, ref, { animate: true });
   dialog.replaceChildren(
-    el('div', { class: 'modal-head' }, el('h2', { id: 'modal-title' }, 'Booking confirmed'),
-      button('✕', 'btn btn-icon modal-close', () => dialog.close())),
-    el('p', {}, 'Your reservation number. Keep it to open your booking later with "Find my reservation".'),
-    el('div', { class: 'ref-row' }, field, copy),
-    el('div', { class: 'modal-actions' },
-      button('View reservation summary', 'btn btn-secondary', () => { dialog.close(); openReservation(ref); }),
-      button('Done', 'btn btn-primary', () => dialog.close())),
+    modalHead('Booking confirmed'),
+    el('div', { class: 'modal-body' },
+      el('p', {}, 'Your trip is booked. Keep this number to open it later with “Find my reservation”.'),
+      ticket,
+      el('div', { class: 'modal-actions' },
+        button('View reservation summary', 'btn btn-secondary', () => { dialog.close(); openReservation(ref); }),
+        button('Done', 'btn btn-primary', () => dialog.close()))),
   );
-  if (!dialog.open) dialog.showModal();
-  copy.focus();
+  openDialog();
+  ticket.querySelector('.btn-copy').focus();
 }
 
 // ---------- find my reservation (GET /api/reservations/:ref, ?reservation=<ref>) ----------
@@ -917,34 +1276,30 @@ findForm.addEventListener('submit', (e) => {
 async function loadReservationView(ref) {
   const seq = ++loadSeq;
   leavePackage();
-  form.hidden = true;
-  quickForm.hidden = true;
-  resultEl.hidden = true;
-  bar.hidden = true;
-  pkgView.hidden = false;
-  pkgView.replaceChildren(el('div', { class: 'card' }, el('p', { class: 'muted' }, 'Looking up reservation…')));
+  hideFormView();
+  pkgView.replaceChildren(packageSkeleton('Looking up reservation…'));
   window.scrollTo({ top: 0 });
   try {
     const res = await fetch(`/api/reservations/${encodeURIComponent(ref)}`);
     const data = await res.json().catch(() => null);
     if (seq !== loadSeq) return;
     if (res.status === 404 || (res.ok && !data?.package)) {
-      pkgView.replaceChildren(
-        el('div', { class: 'banner banner-error', role: 'alert' },
-          el('strong', { class: 'banner-title' }, 'Reservation not found'),
-          el('p', {}, `No reservation has the number ${ref}. Check the 10 digits and try again.`)),
-        button('← New search', 'btn btn-secondary', closePackage),
-      );
+      pkgView.replaceChildren(emptyState('searchX', 'We couldn’t find that reservation',
+        el('p', {}, 'No reservation has the number ', el('span', { class: 'ref-echo' }, ref),
+          '. Check the 10 digits on your ticket and try again.'),
+        [
+          button([icon('search'), 'Try another number'], 'btn btn-primary', () => { findForm.ref.focus(); findForm.ref.select(); }),
+          button('Plan a new trip', 'btn btn-secondary', closePackage),
+        ]));
       return;
     }
     if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
     renderPackage(data.package, data);
   } catch (err) {
     if (seq !== loadSeq) return;
-    pkgView.replaceChildren(
-      banner('error', 'Could not look up the reservation.', [err.message]),
-      button('← New search', 'btn btn-secondary', closePackage),
-    );
+    pkgView.replaceChildren(emptyState('alert', 'Could not look up the reservation', err.message, [
+      button([icon('arrowLeft'), 'New search'], 'btn btn-primary', closePackage),
+    ]));
   }
 }
 
@@ -1035,11 +1390,11 @@ quickForm.addEventListener('submit', async (e) => {
     if (missing.length) lines.push(`Still needed (marked in red below): ${missing.map((f) => FIELD_NAME[f] ?? f).join(', ')}.`);
     lines.push(...(data.notes ?? []));
     quickResult.replaceChildren(banner(missing.length ? 'warn' : 'ok',
-      missing.length ? 'Form partly filled. Please complete it' : 'Form filled. Check it and build', lines));
+      missing.length ? 'Form partly filled. Please complete it' : 'Form filled. Check it and search', lines));
     resultEl.hidden = true;
     const firstMissing = form.querySelector('.field.invalid input, .field.invalid select');
     (firstMissing ?? (missing.includes('childAges') ? document.getElementById('add-child') : submitBtn)).focus();
-    form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    form.scrollIntoView({ behavior: scrollMode(), block: 'start' });
   } catch (err) {
     quickResult.replaceChildren(banner('error', 'Could not read the request.', [err.message]));
   } finally {
@@ -1051,6 +1406,25 @@ quickForm.addEventListener('submit', async (e) => {
 // Ctrl/Cmd+Enter in the text box = "Fill the form".
 quickForm.text.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) quickForm.requestSubmit();
+});
+
+// "Use sample trip": the Menon family request from the problem statement. Fills the form only; never builds.
+const SAMPLE_TRIP = {
+  departureAirport: 'BLR', country: 'Japan', startDate: '2027-04-10', nights: 6, adults: 2, budgetInr: 350000,
+};
+document.getElementById('sample-trip').addEventListener('click', () => {
+  clearAllErrors();
+  quickResult.replaceChildren();
+  for (const [name, value] of Object.entries(SAMPLE_TRIP)) {
+    form[name].value = String(value);
+    form[name].dispatchEvent(new Event('input', { bubbles: true }));
+    form[name].dispatchEvent(new Event('change', { bubbles: true }));
+    flash(form[name]);
+  }
+  form.includeStay.checked = true;
+  childList.replaceChildren();
+  flash(addChild(6));
+  submitBtn.focus({ preventScroll: true });
 });
 
 function route() {
@@ -1067,8 +1441,9 @@ window.addEventListener('popstate', route);
 function setLoading(on) {
   submitBtn.disabled = on;
   submitBtn.classList.toggle('loading', on);
-  submitBtn.querySelector('.btn-label').textContent = on ? 'Building your holiday…' : 'Build my holiday';
+  submitBtn.querySelector('.btn-label').textContent = on ? 'Finding trips that fit…' : 'Find trips that fit';
   form.setAttribute('aria-busy', String(on));
+  resultEl.setAttribute('aria-busy', String(on));
 }
 
 form.addEventListener('submit', async (e) => {
@@ -1083,6 +1458,7 @@ form.addEventListener('submit', async (e) => {
   }
 
   setLoading(true);
+  showResult(...skeletonCards());
   try {
     const res = await fetch('/api/packages/build', {
       method: 'POST',

@@ -1,118 +1,188 @@
-<!-- Build My Holiday: request form, build results (cards / over budget / no package) and the package timeline view. -->
+<!-- FitMyTrip: request card (quick request + form), build results (cards / over budget / no package) and the package view. -->
 <!-- Plain HTML, no build step; behaviour lives in app.js and styling in styles.css. -->
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Build My Holiday</title>
+  <title>FitMyTrip</title>
+  <meta name="description" content="A holiday that fits your dates, your family and your budget.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='1' width='30' height='30' rx='9' fill='%230f766e'/%3E%3Cpath d='M10.5 15.2l3.2 3.1 7.8-8' fill='none' stroke='%23fff' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
   <header class="site-header">
-    <h1>Build My Holiday</h1>
-    <p class="tagline">Flights, hotels, transfers and sights in one package, within your budget.</p>
-    <form id="find-form" class="find-form" role="search" novalidate>
-      <label for="find-ref">Find my reservation</label>
-      <div class="find-row">
-        <input id="find-ref" name="ref" type="text" inputmode="numeric" autocomplete="off" maxlength="10"
-               placeholder="10-digit number">
-        <button type="submit" class="btn btn-find">Find</button>
-      </div>
-    </form>
+    <div class="header-inner">
+      <a class="brand" href="/" aria-label="FitMyTrip home">
+        <svg class="brand-mark" viewBox="0 0 32 32" width="32" height="32" aria-hidden="true" focusable="false">
+          <rect x="1" y="1" width="30" height="30" rx="9" fill="#0f766e"/>
+          <path d="M8 21.5h16" stroke="#faf7f2" stroke-width="2.4" stroke-linecap="round"/>
+          <path d="M8 21.5h10.5" stroke="#f59e0b" stroke-width="2.4" stroke-linecap="round"/>
+          <path d="M10.5 15.2l3.2 3.1 7.8-8" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span class="brand-text">
+          <span class="wordmark">Fit<span class="wordmark-accent">My</span>Trip</span>
+          <span class="tagline">A holiday that fits your dates, your family and your budget.</span>
+        </span>
+      </a>
+
+      <form id="find-form" class="find-form" role="search" novalidate>
+        <label for="find-ref">Find my reservation</label>
+        <div class="find-row">
+          <input id="find-ref" name="ref" type="text" inputmode="numeric" autocomplete="off" maxlength="10"
+                 placeholder="10-digit number" spellcheck="false">
+          <button type="submit" class="btn btn-find" aria-label="Find reservation">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
+            <span class="btn-find-text">Find</span>
+          </button>
+        </div>
+      </form>
+    </div>
   </header>
 
-  <main class="container">
-    <form id="quick-form" class="card quick-card" novalidate>
-      <h2><label for="quick-text">Quick request</label></h2>
-      <p class="field-hint" id="quick-hint">Describe your trip in plain words. We fill in the form below; check it, then build.</p>
-      <textarea id="quick-text" name="text" rows="3" maxlength="1000" aria-describedby="quick-hint"
-        placeholder="e.g. 2 adults and a 6 year old from Bengaluru to Japan on 10 April for 6 nights, budget 3.5 lakh"></textarea>
-      <div class="quick-actions">
-        <button type="submit" id="quick-submit" class="btn btn-secondary">Fill the form</button>
-      </div>
-      <div id="quick-result" aria-live="polite"></div>
-    </form>
-
-    <form id="request-form" class="card" novalidate>
-      <h2>Plan your trip</h2>
-      <p id="meta-error" class="banner banner-error" hidden></p>
-
-      <div class="grid two">
-        <div class="field" data-field="departureAirport">
-          <label for="departureAirport">Departure city</label>
-          <select id="departureAirport" name="departureAirport" required>
-            <option value="">Loading…</option>
-          </select>
-          <p class="field-error" aria-live="polite"></p>
+  <main id="main" class="container" tabindex="-1">
+    <section id="request-card" class="card request-card" aria-labelledby="request-title">
+      <div class="request-head">
+        <div>
+          <h1 id="request-title">Plan a trip that fits</h1>
+          <p class="muted request-sub">Describe it in plain words, or fill in the details below.</p>
         </div>
-
-        <div class="field" data-field="country">
-          <label for="country">Destination country</label>
-          <select id="country" name="country" required>
-            <option value="">Loading…</option>
-          </select>
-          <p class="field-hint" id="country-cities"></p>
-          <p class="field-error" aria-live="polite"></p>
-        </div>
+        <button type="button" id="sample-trip" class="btn-link sample-link">Use sample trip</button>
       </div>
 
-      <div class="grid two">
-        <div class="field" data-field="startDate">
-          <label for="startDate">Start date <span class="muted">(arrival day)</span></label>
-          <input id="startDate" name="startDate" type="date" value="2027-04-10" required>
-          <p class="field-hint">Flights and rooms are available 1–20 April 2027.</p>
-          <p class="field-error" aria-live="polite"></p>
+      <form id="quick-form" class="quick-form" novalidate>
+        <label for="quick-text" class="quick-label">Quick request</label>
+        <div class="quick-row">
+          <textarea id="quick-text" name="text" rows="2" maxlength="1000" aria-describedby="quick-hint"
+            placeholder="e.g. 2 adults and a 6 year old from Bengaluru to Japan on 10 April for 6 nights, budget 3.5 lakh"></textarea>
+          <button type="submit" id="quick-submit" class="btn btn-secondary">Fill the form</button>
+        </div>
+        <p class="field-hint" id="quick-hint">We only fill in the form; check it, then search. Ctrl+Enter works too.</p>
+        <div id="quick-result" aria-live="polite"></div>
+      </form>
+
+      <div class="divider" role="presentation"><span>Trip details</span></div>
+
+      <form id="request-form" class="request-form" novalidate>
+        <p id="meta-error" class="banner banner-error" hidden></p>
+
+        <div class="groups">
+          <div class="group" role="group" aria-labelledby="g-where">
+            <h2 class="group-title" id="g-where">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.3"/></svg>
+              Where
+            </h2>
+            <div class="field" data-field="departureAirport">
+              <label for="departureAirport">Flying from</label>
+              <select id="departureAirport" name="departureAirport" required>
+                <option value="">Loading…</option>
+              </select>
+              <p class="field-error" aria-live="polite"></p>
+            </div>
+            <div class="field" data-field="country">
+              <label for="country">Destination country</label>
+              <select id="country" name="country" required>
+                <option value="">Loading…</option>
+              </select>
+              <p class="field-hint" id="country-cities"></p>
+              <p class="field-error" aria-live="polite"></p>
+            </div>
+            <fieldset class="field field-plain" data-field="includeStay">
+              <legend class="sr-only">Stay</legend>
+              <label class="check">
+                <input id="includeStay" name="includeStay" type="checkbox" checked>
+                <span>Include a hotel</span>
+              </label>
+              <p class="field-hint">Untick if you have your own place. We still plan flights, transfers and sights.</p>
+              <p class="field-error" aria-live="polite"></p>
+            </fieldset>
+          </div>
+
+          <div class="group" role="group" aria-labelledby="g-when">
+            <h2 class="group-title" id="g-when">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5.5" width="16" height="14.5" rx="2.5"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/></svg>
+              When
+            </h2>
+            <div class="field" data-field="startDate">
+              <label for="startDate">Arrival day</label>
+              <input id="startDate" name="startDate" type="date" min="2027-04-01" max="2027-04-20" required>
+              <p class="field-hint">Flights and rooms: 1–20 April 2027.</p>
+              <p class="field-error" aria-live="polite"></p>
+            </div>
+            <div class="field" data-field="nights">
+              <label for="nights">Nights</label>
+              <div class="stepper">
+                <button type="button" class="step" data-step="nights" data-dir="-1" aria-label="Fewer nights">
+                  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 12h12"/></svg>
+                </button>
+                <input id="nights" name="nights" type="number" inputmode="numeric" min="3" max="10" step="1" required
+                       aria-describedby="nights-hint" placeholder="–">
+                <button type="button" class="step" data-step="nights" data-dir="1" aria-label="More nights">
+                  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 12h12M12 6v12"/></svg>
+                </button>
+              </div>
+              <p class="field-hint" id="nights-hint">3 to 10 nights.</p>
+              <p class="field-error" aria-live="polite"></p>
+            </div>
+          </div>
+
+          <div class="group" role="group" aria-labelledby="g-who">
+            <h2 class="group-title" id="g-who">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19.5c.6-3.4 2.8-5.3 5.5-5.3s4.9 1.9 5.5 5.3"/><circle cx="17" cy="10" r="2.4"/><path d="M15.8 14.6c2.5-.4 4.3 1.2 4.7 4.4"/></svg>
+              Who
+            </h2>
+            <div class="field" data-field="adults">
+              <label for="adults">Adults</label>
+              <div class="stepper">
+                <button type="button" class="step" data-step="adults" data-dir="-1" aria-label="Fewer adults">
+                  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 12h12"/></svg>
+                </button>
+                <input id="adults" name="adults" type="number" inputmode="numeric" min="1" step="1" required placeholder="–">
+                <button type="button" class="step" data-step="adults" data-dir="1" aria-label="More adults">
+                  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 12h12M12 6v12"/></svg>
+                </button>
+              </div>
+              <p class="field-error" aria-live="polite"></p>
+            </div>
+            <fieldset class="field field-plain children" data-field="childAges">
+              <legend>Children <span class="muted">(age on travel date, 0–17)</span></legend>
+              <ul id="child-list" class="child-list"></ul>
+              <button type="button" id="add-child" class="chip-add">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 12h12M12 6v12"/></svg>
+                Add child
+              </button>
+              <p class="field-error" aria-live="polite"></p>
+            </fieldset>
+          </div>
+
+          <div class="group" role="group" aria-labelledby="g-budget">
+            <h2 class="group-title" id="g-budget">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3.5" y="6" width="17" height="12.5" rx="2.5"/><path d="M3.5 10h17M15.5 14.5h2"/></svg>
+              Budget
+            </h2>
+            <div class="field" data-field="budgetInr">
+              <label for="budgetInr">Total budget for everyone</label>
+              <div class="money-input">
+                <span class="money-prefix" aria-hidden="true">₹</span>
+                <input id="budgetInr" name="budgetInr" type="number" inputmode="numeric" min="1" step="1" required
+                       aria-describedby="budget-hint" placeholder="e.g. 350000">
+              </div>
+              <p class="field-hint budget-hint" id="budget-hint"></p>
+              <p class="field-error" aria-live="polite"></p>
+            </div>
+          </div>
         </div>
 
-        <div class="field" data-field="nights">
-          <label for="nights">Nights</label>
-          <input id="nights" name="nights" type="number" inputmode="numeric" min="3" max="10" step="1" value="6" required>
-          <p class="field-hint" id="nights-hint">3 to 10 nights.</p>
-          <p class="field-error" aria-live="polite"></p>
+        <div class="actions">
+          <button type="submit" id="submit" class="btn btn-primary btn-block">
+            <span class="spinner" aria-hidden="true"></span>
+            <span class="btn-label">Find trips that fit</span>
+          </button>
         </div>
-      </div>
-
-      <div class="grid two">
-        <div class="field" data-field="adults">
-          <label for="adults">Adults</label>
-          <input id="adults" name="adults" type="number" inputmode="numeric" min="1" step="1" value="2" required>
-          <p class="field-error" aria-live="polite"></p>
-        </div>
-
-        <div class="field" data-field="budgetInr">
-          <label for="budgetInr">Budget (₹ INR, total)</label>
-          <input id="budgetInr" name="budgetInr" type="number" inputmode="numeric" min="1" step="1" value="350000" required>
-          <p class="field-hint" id="budget-hint"></p>
-          <p class="field-error" aria-live="polite"></p>
-        </div>
-      </div>
-
-      <fieldset class="field children" data-field="childAges">
-        <legend>Children <span class="muted">(age on travel date, 0–17)</span></legend>
-        <ul id="child-list" class="child-list"></ul>
-        <button type="button" id="add-child" class="btn btn-secondary">+ Add child</button>
-        <p class="field-error" aria-live="polite"></p>
-      </fieldset>
-
-      <fieldset class="field" data-field="includeStay">
-        <legend>Stay</legend>
-        <label class="stay-toggle">
-          <input id="includeStay" name="includeStay" type="checkbox" checked>
-          Include a hotel in the package
-        </label>
-        <p class="field-hint">Uncheck if you already have your own place to stay. We still plan your flights,
-          airport and city transfers, and attractions.</p>
-        <p class="field-error" aria-live="polite"></p>
-      </fieldset>
-
-      <div class="actions">
-        <button type="submit" id="submit" class="btn btn-primary">
-          <span class="spinner" aria-hidden="true"></span>
-          <span class="btn-label">Build my holiday</span>
-        </button>
-      </div>
-    </form>
+      </form>
+    </section>
 
     <section id="result" class="result" aria-live="polite" hidden></section>
 
@@ -122,13 +192,26 @@
   <footer id="budget-bar" class="budget-bar" hidden>
     <div id="change-notice" class="change-notice" aria-live="polite"></div>
     <div class="budget-bar-inner">
-      <dl class="bar-stats">
-        <div><dt>Total</dt><dd id="bar-total">—</dd></div>
-        <div><dt>Budget</dt><dd id="bar-budget">—</dd></div>
-        <div id="bar-left-box" aria-live="polite"><dt id="bar-left-label">Left</dt><dd id="bar-left">—</dd></div>
-      </dl>
+      <div class="fit">
+        <div class="fit-row">
+          <dl class="bar-stats">
+            <div><dt>Total</dt><dd id="bar-total">—</dd></div>
+            <div><dt>Budget</dt><dd id="bar-budget">—</dd></div>
+            <div id="bar-left-box" class="fit-status" aria-live="polite"><dt id="bar-left-label">left</dt><dd id="bar-left">—</dd></div>
+          </dl>
+          <span id="fit-delta" class="delta-chip" aria-hidden="true"></span>
+        </div>
+        <div id="fit-track" class="fit-track" role="img" aria-label="Budget fit">
+          <span id="fit-fill" class="fit-fill"></span>
+          <span id="fit-over" class="fit-over"></span>
+          <span id="fit-mark" class="fit-mark"></span>
+        </div>
+      </div>
       <div class="bar-actions">
-        <a id="export-btn" class="btn btn-secondary btn-export" href="#">Export JSON</a>
+        <a id="export-btn" class="btn btn-secondary btn-export" href="#">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19.5h14"/></svg>
+          Export JSON
+        </a>
         <button type="button" id="confirm-btn" class="btn btn-primary btn-confirm">Confirm booking</button>
       </div>
     </div>
@@ -139,8 +222,10 @@
   <template id="child-row">
     <li class="child-row">
       <label class="child-label"></label>
-      <input type="number" inputmode="numeric" min="0" max="17" step="1" class="child-age" required>
-      <button type="button" class="btn btn-icon remove-child" aria-label="Remove child">✕</button>
+      <input type="number" inputmode="numeric" min="0" max="17" step="1" class="child-age" required placeholder="age">
+      <button type="button" class="remove-child" aria-label="Remove child">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 7l10 10M17 7L7 17"/></svg>
+      </button>
     </li>
   </template>
 
