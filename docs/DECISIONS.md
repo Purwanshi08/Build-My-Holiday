@@ -154,3 +154,10 @@
   `execCommand('copy')`). Refusals show the reasons in the red notice above the bar. "Find my reservation" in the
   header opens `/?reservation=<ref>` (survives a refresh). It shows a read-only summary with the reference, booking
   time (SQLite UTC), header and timeline, no edit buttons, and Export JSON. A 404 shows "Reservation not found".
+- **2026-11-13 — `set_city_plan` keeps the package's character.** A city change rebuilds with the strategy of the
+  package's label: `best_rated` → highest-star hotel per city (best average stars wins), `fastest` → shortest
+  travel (all flight pairs compared), otherwise cheapest. The current flights are kept when they fit the plan
+  (except for `fastest`). Why: a "Best rated" 5★ package used to fall to 3–4★ after a city change while keeping
+  its label. Every valid option's `detail` now also has `avg_stars` and `travel_minutes` of the resulting
+  package. Note: the same average after a city change can be correct. The cheapest hotels in Tokyo (Ueno Garden
+  Inn) and Osaka (Tennoji Park Hotel) are both 3★, so Tokyo/Osaka plans of the cheapest Menon package stay at 3★.

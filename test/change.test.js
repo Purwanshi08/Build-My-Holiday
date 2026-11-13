@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { buildPackages } from '../src/engine/build.js';
 import { applyChange, getOptions } from '../src/engine/change.js';
 import { validatePackage } from '../src/engine/validate.js';
-import { transferById, roomsLeft } from '../src/engine/catalog.js';
+import { transferById, roomsLeft, hotelById, hotelsInCity } from '../src/engine/catalog.js';
 import { checkRules } from './rules.js';
 import { requestOf } from '../src/engine/parts.js';
 
@@ -196,6 +196,43 @@ test('set_city_plan rebuilds for the new plan, keeps id/label, changes the retur
   assert.ok(r.warnings.some((w) => /^Return flight changed to FL-411/.test(w)), 'HND does not serve Kyoto');
 });
 
+/** avg_stars recomputed by hand: hotel stars weighted by nights, rounded to 2 decimals. */
+const starsByHand = (pkg) => {
+  const nights = pkg.plan.reduce((t, p) => t + p.nights, 0);
+  return Math.round((pkg.plan.reduce((t, p) => t + hotelById.get(p.hotel_id).stars * p.nights, 0) / nights) * 100) / 100;
+};
+
+test('set_city_plan: avg_stars always matches the new hotels (every plan, cheapest package)', () => {
+  const pkg = base();
+  let changed = 0;
+  for (const o of getOptions(pkg, { kind: 'city_plan' }).filter((x) => x.valid && !x.detail.current)) {
+    const r = applyChange(pkg, { type: 'set_city_plan', cities: o.detail.cities });
+    assert.equal(r.package.metrics.avg_stars, starsByHand(r.package), o.id);
+    assert.equal(o.detail.avg_stars, r.package.metrics.avg_stars, `${o.id} option shows the same stars`);
+    if (r.package.metrics.avg_stars !== pkg.metrics.avg_stars) changed++;
+  }
+  assert.ok(changed > 0);
+  // Tokyo + Osaka stay at 3★ legitimately: the cheapest hotel in both cities is 3★.
+  const same = applyChange(pkg, { type: 'set_city_plan', cities: [{ city: 'Tokyo', nights: 3 }, { city: 'Osaka', nights: 3 }] });
+  assert.equal(same.package.metrics.avg_stars, 3);
+  assert.deepEqual(same.package.plan.map((p) => hotelById.get(p.hotel_id).stars), [3, 3]);
+});
+
+test('set_city_plan keeps a best-rated package best rated (highest-star hotels in every city)', () => {
+  const best = buildPackages(MENON).packages.find((p) => p.label === 'best_rated');
+  assert.equal(best.metrics.avg_stars, 5);
+  const snap = JSON.stringify(best);
+  const r = applyChange(best, { type: 'set_city_plan', cities: [{ city: 'Kyoto', nights: 2 }, { city: 'Osaka', nights: 4 }] });
+  assertGood(best, r, snap);
+  assert.equal(r.package.label, 'best_rated');
+  for (const p of r.package.plan) {
+    const top = Math.max(...hotelsInCity(p.city).map((h) => h.stars));
+    assert.equal(hotelById.get(p.hotel_id).stars, top, p.city);
+  }
+  assert.equal(r.package.metrics.avg_stars, starsByHand(r.package));
+  assert.ok(r.warnings.some((w) => /with the highest-star hotels/.test(w)));
+});
+
 test('set_city_plan refusals: one-night city, wrong total, unknown city', () => {
   const pkg = base();
   const snap = JSON.stringify(pkg);
@@ -275,6 +312,11 @@ test('getOptions city_plan: every legal plan, current at ₹0, deltas match a re
   const current = opts.find((o) => o.detail.current);
   assert.equal(current.id, 'Tokyo:6');
   assert.equal(current.price_delta_inr, 0);
+  for (const o of opts.filter((x) => x.valid)) {
+    assert.equal(typeof o.detail.avg_stars, 'number', o.id);
+    assert.ok(Number.isInteger(o.detail.travel_minutes), o.id);
+  }
+  assert.equal(current.detail.avg_stars, pkg.metrics.avg_stars);
   assertOptionsMatch(pkg, opts.slice(0, 6), (o) => ({ type: 'set_city_plan', cities: o.detail.cities }));
   assert.deepEqual(getOptions(pkg, { kind: 'nope' }), []);
 });

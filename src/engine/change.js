@@ -124,6 +124,21 @@ function freeSlot(a, day, dayVisits) {
   return null;
 }
 
+/** How set_city_plan rebuilds each kind of package (by its label), and which rebuilt package wins. */
+const REBUILD = {
+  cheapest: { strategy: 'cheap', how: 'the cheapest hotels', better: (a, b) => a.total_inr < b.total_inr },
+  fastest: {
+    strategy: 'quick', how: 'the shortest travel',
+    better: (a, b) => a.metrics.travel_minutes - b.metrics.travel_minutes < 0 ||
+      (a.metrics.travel_minutes === b.metrics.travel_minutes && a.total_inr < b.total_inr),
+  },
+  best_rated: {
+    strategy: 'rated', how: 'the highest-star hotels',
+    better: (a, b) => a.metrics.avg_stars > b.metrics.avg_stars ||
+      (a.metrics.avg_stars === b.metrics.avg_stars && a.total_inr < b.total_inr),
+  },
+};
+
 // ---- change handlers: return { refuse: [...] } or { touched: [...] } / { built } ---------------------------
 
 const HANDLERS = {
@@ -225,7 +240,7 @@ const HANDLERS = {
     return { touched: [] };
   },
 
-  set_city_plan(parts, ch) {
+  set_city_plan(parts, ch, pkg) {
     const { c } = parts;
     const want = Array.isArray(ch.cities) ? ch.cities.map((x) => ({ city: x?.city, nights: x?.nights })) : [];
     const plan = cityPlans(c.req.country, c.req.nights).find((p) => planKey(p) === planKey(want));
@@ -241,23 +256,24 @@ const HANDLERS = {
       return { refuse: [`No flights fit ${planText(plan)}: none lands on ${c.req.startDate} near ${plan[0].city} ` +
         `and returns on ${c.end} from near ${plan.at(-1).city} with ${c.travelers} free seats.`] };
     }
+    // Rebuild in the package's own character: best rated keeps the highest-star hotels, fastest the shortest
+    // travel, everything else the cheapest. Keep the current flights when they fit (unless fastest, where the
+    // flights are part of what is being optimised).
+    const { strategy, better, how } = REBUILD[pkg.label] ?? REBUILD.cheapest;
     const same = pairs.find((p) => p.out.flight_id === parts.out.flight_id && p.ret.flight_id === parts.ret.flight_id);
     const failures = new Set();
-    let built = null;
-    for (const pair of same ? [same] : pairs) {
-      const r = buildCandidate(c, plan, pair, 'cheap');
-      if (r.fail) failures.add(r.fail.reason);
-      else if (!built || r.pkg.total_inr < built.total_inr) built = r.pkg;
-    }
-    if (!built && same) {
-      for (const pair of pairs) {
-        const r = buildCandidate(c, plan, pair, 'cheap');
+    const bestOf = (list) => {
+      let built = null;
+      for (const pair of list) {
+        const r = buildCandidate(c, plan, pair, strategy);
         if (r.fail) failures.add(r.fail.reason);
-        else if (!built || r.pkg.total_inr < built.total_inr) built = r.pkg;
+        else if (!built || better(r.pkg, built)) built = r.pkg;
       }
-    }
+      return built;
+    };
+    const built = (same && strategy !== 'quick' ? bestOf([same]) : null) ?? bestOf(pairs);
     if (!built) return { refuse: [...failures] };
-    const warnings = [`Rebuilt for ${planText(plan)}: hotels, transfers and attractions were chosen again.`];
+    const warnings = [`Rebuilt for ${planText(plan)} with ${how}: hotels, transfers and attractions were chosen again.`];
     const flights = built.items.filter((i) => i.type === 'flight').map((i) => i.catalog_id);
     if (flights[0] !== parts.out.flight_id) warnings.push(`Arrival flight changed to ${flights[0]} to serve ${plan[0].city}.`);
     if (flights[1] !== parts.ret.flight_id) warnings.push(`Return flight changed to ${flights[1]} to serve ${plan.at(-1).city}.`);
@@ -316,7 +332,10 @@ function option(id, label, r, detail) {
     valid: r.ok,
     reason: r.ok ? null : r.reasons.join(' '),
     detail: r.ok
-      ? { ...detail, total_inr: r.package.total_inr, over_budget: r.package.total_inr > r.package.budget_inr, warnings: r.warnings }
+      ? {
+        ...detail, total_inr: r.package.total_inr, over_budget: r.package.total_inr > r.package.budget_inr,
+        avg_stars: r.package.metrics.avg_stars, travel_minutes: r.package.metrics.travel_minutes, warnings: r.warnings,
+      }
       : detail,
   };
 }
