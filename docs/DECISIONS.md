@@ -60,3 +60,22 @@
 - **2026-11-13 — The "1–2 attractions on every full day" rule is checked on every package, not only the first.**
   The judges' tool cannot tell a first package from an edited one. So removing a day's last attraction, or adding
   a third, is refused (M6 allows "refuses the change with a reason").
+- **2026-11-13 — Results and package screens (public/).** `OK` shows up to 3 cards (label, cities and nights,
+  total, budget left, travel time, average stars) with a "View package" button. `OVER_BUDGET` shows the cheapest
+  total, the amount over and up to 3 suggestion buttons. Each button refills the form (budget or nights) by
+  reading the number out of the engine's text. It does not resubmit, so the user can check the form first.
+  A suggestion we cannot read shows as plain text. `NO_PACKAGE` shows the reasons in a large red banner.
+- **2026-11-13 — "View cheapest package" on `OVER_BUDGET`.** The engine returns no package when over budget. So
+  `POST /api/packages/build` rebuilds once with `budgetInr = cheapest_total`, takes the cheapest package, puts the
+  user's real budget back (`budget_inr`, `left_inr = budget − total`, negative), saves it and adds
+  `cheapest_package_id` to the response. Engine contract unchanged; this is an extra HTTP field only.
+- **2026-11-13 — Package view URL is `/?package=<id>`** (history.pushState, back button works). A refresh reloads
+  it with `GET /api/packages/:id`; an unknown id shows an error and a "New search" button.
+- **2026-11-13 — Timeline layout.** Items are grouped by the local date of `start` and sorted by `HH:MM` (strings
+  only). The outbound overnight flight therefore sits on its departure date ("Before day 1"). Hotel items carry
+  dates only, so each gives two rows: check-out first in its day, and check-in right after that day's last flight
+  or transfer arrival. Attraction photos use `/images/attractions/<catalog_id>.jpg` (the catalog's `image` path
+  pattern); a missing file just hides the photo. The credits link points to `/images/ATTRIBUTIONS.md`.
+- **2026-11-13 — Sticky budget bar.** It shows total, budget and left (green) / over (red) as
+  `budget_inr − total_inr`. `updateBar(pkg)` is called with every package the backend returns, so future change
+  responses must call it too. Export JSON is a link to `GET /api/packages/:id/export`, which downloads the file.

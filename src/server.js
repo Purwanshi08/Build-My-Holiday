@@ -34,8 +34,19 @@ app.get('/api/meta', (_req, res) => res.json(getMeta()));
 
 app.post('/api/packages/build', (req, res) => {
   const request = req.body ?? {};
-  const result = buildPackages(request, store.getCtx());
+  const ctx = store.getCtx();
+  const result = buildPackages(request, ctx);
   for (const pkg of result.packages) store.savePackage(pkg, request);
+  if (result.status === 'OVER_BUDGET') {
+    // "View cheapest package": rebuild with the budget raised to the cheapest total, keep only the cheapest
+    // package and give it back the user's real budget, so it shows as over budget.
+    const cheapest = buildPackages({ ...request, budgetInr: result.cheapest_total }, ctx).packages[0];
+    if (cheapest) {
+      const pkg = { ...cheapest, budget_inr: request.budgetInr, left_inr: request.budgetInr - cheapest.total_inr };
+      store.savePackage(pkg, request);
+      result.cheapest_package_id = pkg.id;
+    }
+  }
   res.json(result);
 });
 

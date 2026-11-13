@@ -1,5 +1,5 @@
-// Request form logic: loads dropdowns from GET /api/meta, validates fields on the client and calls
-// POST /api/packages/build, then shows packages, over-budget suggestions, NO_PACKAGE reasons or field errors.
+// Front end: request form (GET /api/meta, client checks, POST /api/packages/build), result cards / over-budget
+// suggestions / NO_PACKAGE reasons, and the day-by-day package view (?package=<id>) with a sticky budget bar.
 
 const form = document.getElementById('request-form');
 const submitBtn = document.getElementById('submit');
@@ -226,46 +226,120 @@ function banner(kind, title, lines = []) {
   );
 }
 
+const hm = (minutes) => `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m`;
+const plural = (n, word, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
+
+function button(label, cls, onClick) {
+  const b = el('button', { type: 'button', class: cls }, label);
+  b.addEventListener('click', onClick);
+  return b;
+}
+
 function packageCard(pkg) {
-  const cities = pkg.plan.map((p) => `${p.city} ${p.nights}n`).join(' → ');
-  const hours = Math.floor(pkg.metrics.travel_minutes / 60);
-  const mins = pkg.metrics.travel_minutes % 60;
+  const cities = pkg.plan.map((p) => `${p.city} ${plural(p.nights, 'night')}`).join(' → ');
   return el(
     'article',
     { class: 'pkg-card' },
     el('span', { class: `pkg-label pkg-${pkg.label}` }, labelName[pkg.label] ?? pkg.label),
-    el('h3', {}, `${pkg.country}: ${cities}`),
-    el('p', { class: 'muted' }, `${pkg.start_date} to ${pkg.end_date}`),
+    el('h3', {}, pkg.country),
+    el('p', { class: 'pkg-cities' }, cities),
+    el('p', { class: 'muted' }, `${fmtDateShort(pkg.start_date)} to ${fmtDateShort(pkg.end_date)}`),
     el(
       'dl',
       { class: 'pkg-stats' },
       el('div', {}, el('dt', {}, 'Total'), el('dd', { class: 'pkg-total' }, inr(pkg.total_inr))),
-      el('div', {}, el('dt', {}, 'Left in budget'), el('dd', {}, inr(pkg.left_inr))),
-      el('div', {}, el('dt', {}, 'Travel time'), el('dd', {}, `${hours}h ${String(mins).padStart(2, '0')}m`)),
-      el('div', {}, el('dt', {}, 'Hotel stars'), el('dd', {}, `${pkg.metrics.avg_stars} ★`)),
+      el('div', {}, el('dt', {}, 'Budget left'), el('dd', { class: 'money-ok' }, inr(pkg.left_inr))),
+      el('div', {}, el('dt', {}, 'Travel time'), el('dd', {}, hm(pkg.metrics.travel_minutes))),
+      el('div', {}, el('dt', {}, 'Average hotel stars'), el('dd', {}, `${pkg.metrics.avg_stars} ★`)),
     ),
+    button('View package', 'btn btn-primary btn-view', () => openPackage(pkg.id)),
+  );
+}
+
+// Over-budget suggestions are human-readable engine strings ("Raise the budget to at least ₹2,48,290.",
+// "Try 4 nights (from ₹1,90,000)."); these patterns turn them into form values.
+const SUGGESTION_PATTERNS = [
+  { re: /budget to (?:at least )?₹\s?([\d,]+)/i, apply: (m) => ({ budgetInr: Number(m[1].replace(/,/g, '')) }) },
+  { re: /(\d+)\s+nights?/i, apply: (m) => ({ nights: Number(m[1]) }) },
+  { re: /nights\D*?(\d+)/i, apply: (m) => ({ nights: Number(m[1]) }) },
+];
+
+function suggestionChanges(text) {
+  for (const p of SUGGESTION_PATTERNS) {
+    const m = text.match(p.re);
+    if (m) return p.apply(m);
+  }
+  return null;
+}
+
+function refillForm(changes) {
+  clearAllErrors();
+  for (const [name, value] of Object.entries(changes)) {
+    form[name].value = value;
+    form[name].dispatchEvent(new Event('input', { bubbles: true }));
+    form[name].classList.add('flash');
+    setTimeout(() => form[name].classList.remove('flash'), 1600);
+  }
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  submitBtn.focus({ preventScroll: true });
+}
+
+function overBudgetView(data) {
+  const box = el(
+    'div',
+    { class: 'banner banner-warn over-budget', role: 'status' },
+    el('strong', { class: 'banner-title' }, 'No package fits this budget'),
+    el(
+      'dl',
+      { class: 'pkg-stats' },
+      el('div', {}, el('dt', {}, 'Cheapest package'), el('dd', {}, inr(data.cheapest_total))),
+      el('div', {}, el('dt', {}, 'Over your budget by'), el('dd', { class: 'money-over' }, inr(data.over_by))),
+    ),
+  );
+  const suggestions = data.suggestions.slice(0, 3);
+  if (suggestions.length) {
+    const row = el('div', { class: 'suggestions' });
+    for (const s of suggestions) {
+      const changes = suggestionChanges(s);
+      row.append(changes
+        ? button(s, 'btn btn-secondary btn-suggest', () => refillForm(changes))
+        : el('span', { class: 'suggest-text' }, s));
+    }
+    box.append(el('p', { class: 'suggest-title' }, 'Try one of these (fills in the form):'), row);
+  }
+  if (data.cheapest_package_id) {
+    box.append(button('View cheapest package', 'btn btn-warn', () => openPackage(data.cheapest_package_id)));
+  }
+  return box;
+}
+
+function noPackageView(reasons) {
+  return el(
+    'div',
+    { class: 'banner banner-error no-package', role: 'alert' },
+    el('strong', { class: 'banner-title' }, 'No package for these choices'),
+    el('p', {}, 'We could not build a valid trip because:'),
+    el('ul', { class: 'reasons' }, ...reasons.map((r) => el('li', {}, r))),
   );
 }
 
 function renderBuild(data) {
   switch (data.status) {
-    case 'OK':
+    case 'OK': {
+      const pkgs = data.packages.slice(0, 3);
       showResult(
-        el('h2', {}, `${data.packages.length} package${data.packages.length === 1 ? '' : 's'} found`),
-        el('div', { class: 'pkg-grid' }, ...data.packages.map(packageCard)),
+        el('h2', {}, `${plural(pkgs.length, 'package')} within your budget`),
+        el('div', { class: 'pkg-grid' }, ...pkgs.map(packageCard)),
       );
       break;
+    }
     case 'OVER_BUDGET':
-      showResult(
-        banner('warn', `Over budget by ${inr(data.over_by)}: the cheapest package costs ${inr(data.cheapest_total)}.`,
-          data.suggestions),
-      );
+      showResult(overBudgetView(data));
       break;
     case 'NO_PACKAGE': {
       const windowReason = data.reasons.find((r) => r.startsWith(WINDOW_PREFIX));
       if (windowReason) setError('startDate', 'Pick dates between 1 and 20 April 2027.');
-      showResult(banner('error', 'No package for these choices', data.reasons));
-      if (windowReason) form.startDate.focus();
+      showResult(noPackageView(data.reasons));
       break;
     }
     case 'INVALID_REQUEST': {
@@ -278,6 +352,236 @@ function renderBuild(data) {
   }
   if (data.status !== 'INVALID_REQUEST') resultEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
+
+// ---------- dates (strings only; weekday and day number via the UTC trick, CLAUDE.md rule 4) ----------
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const utcDay = (d) => new Date(d + 'T00:00:00Z');
+const fmtDateShort = (d) => `${Number(d.slice(8, 10))} ${MONTHS[Number(d.slice(5, 7)) - 1]}`;
+const fmtDateLong = (d) => `${WEEKDAYS[utcDay(d).getUTCDay()]} ${fmtDateShort(d)} ${d.slice(0, 4)}`;
+const dateOf = (dt) => dt.slice(0, 10);
+const timeOf = (dt) => (dt.length >= 16 ? dt.slice(11, 16) : null);
+const toMin = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+
+// ---------- package view ----------
+
+const pkgView = document.getElementById('package-view');
+const bar = document.getElementById('budget-bar');
+const TYPE_LABEL = { flight: 'Flight', transfer: 'Transfer', hotel: 'Hotel', attraction: 'Attraction' };
+
+/** Bottom bar: total, budget and left/over. Call it with every package the backend sends back. */
+function updateBar(pkg) {
+  const left = pkg.budget_inr - pkg.total_inr;
+  document.getElementById('bar-total').textContent = inr(pkg.total_inr);
+  document.getElementById('bar-budget').textContent = inr(pkg.budget_inr);
+  document.getElementById('bar-left-label').textContent = left >= 0 ? 'Left' : 'Over budget';
+  document.getElementById('bar-left').textContent = inr(Math.abs(left));
+  const box = document.getElementById('bar-left-box');
+  box.classList.toggle('money-ok', left >= 0);
+  box.classList.toggle('money-over', left < 0);
+  document.getElementById('export-btn').href = `/api/packages/${encodeURIComponent(pkg.id)}/export`;
+  bar.hidden = false;
+}
+
+/**
+ * Timeline days from package.items, keyed by local date. One event per item on its start date, except hotels,
+ * which give a check-in (start date) and a check-out (end date). Hotel items carry dates only, so check-out sorts
+ * first in its day and check-in right after the last flight/transfer that arrives that day.
+ */
+function timelineDays(pkg) {
+  const events = [];
+  for (const item of pkg.items) {
+    if (item.type === 'hotel') {
+      events.push({ item, kind: 'check-in', date: dateOf(item.start), time: null });
+      events.push({ item, kind: 'check-out', date: dateOf(item.end), time: null });
+    } else {
+      events.push({ item, kind: item.type, date: dateOf(item.start), time: timeOf(item.start) });
+    }
+  }
+  const lastArrival = {};
+  for (const item of pkg.items) {
+    if ((item.type === 'flight' || item.type === 'transfer') && timeOf(item.end)) {
+      const d = dateOf(item.end);
+      lastArrival[d] = Math.max(lastArrival[d] ?? -1, toMin(timeOf(item.end)));
+    }
+  }
+  for (const ev of events) {
+    if (ev.kind === 'check-out') ev.key = -1;
+    else if (ev.kind === 'check-in') ev.key = (lastArrival[ev.date] ?? -1) + 0.5;
+    else ev.key = ev.time ? toMin(ev.time) : 0;
+  }
+  events.sort((a, b) => a.date.localeCompare(b.date) || a.key - b.key);
+  const days = new Map();
+  for (const ev of events) {
+    if (!days.has(ev.date)) days.set(ev.date, []);
+    days.get(ev.date).push(ev);
+  }
+  return days;
+}
+
+function cityOn(pkg, date) {
+  if (date < pkg.start_date) return 'Departure';
+  if (date >= pkg.end_date) return 'Return home';
+  return pkg.plan.find((p) => p.check_in <= date && date < p.check_out)?.city ?? '';
+}
+
+function eventNode(ev) {
+  const { item } = ev;
+  let title = item.name;
+  let when = ev.time ?? '';
+  const details = [];
+
+  if (ev.kind === 'check-in') {
+    title = `Check in: ${item.name}`;
+    when = 'Check-in';
+    details.push(`${plural(item.quantity, 'room')} · until ${fmtDateShort(dateOf(item.end))}`);
+  } else if (ev.kind === 'check-out') {
+    title = `Check out: ${item.name}`;
+    when = 'Check-out';
+  } else {
+    const end = timeOf(item.end ?? '');
+    if (end) {
+      const nextDay = dateOf(item.end) !== dateOf(item.start);
+      details.push(`${ev.time} – ${end}${nextDay ? ` (${fmtDateShort(dateOf(item.end))})` : ''}`);
+    }
+    if (item.type === 'flight') details.push(plural(item.quantity, 'seat'));
+    if (item.type === 'attraction') details.push(plural(item.quantity, 'ticket'));
+    if (item.type === 'transfer') details.push(`× ${item.quantity}`);
+  }
+
+  const body = el(
+    'div',
+    { class: 'tl-body' },
+    el(
+      'div',
+      { class: 'tl-head' },
+      el('span', { class: `tl-type tl-${item.type}` }, TYPE_LABEL[item.type] ?? item.type),
+      el('strong', { class: 'tl-title' }, title),
+      ev.kind === 'check-out' ? null : el('span', { class: 'tl-price' }, inr(item.price_inr)),
+    ),
+    details.length ? el('p', { class: 'tl-detail muted' }, details.join(' · ')) : null,
+    ...(item.warnings ?? []).map((w) => el('p', { class: 'tl-warning' }, w)),
+  );
+  if (item.type === 'attraction' && item.catalog_id) {
+    // Catalog images are images/attractions/<attraction_id>.jpg; hide the frame if one is missing.
+    const img = el('img', {
+      class: 'tl-photo',
+      src: `/images/attractions/${encodeURIComponent(item.catalog_id)}.jpg`,
+      alt: item.name,
+      loading: 'lazy',
+    });
+    img.addEventListener('error', () => img.remove());
+    body.prepend(img);
+  }
+  return el('li', { class: `tl-item tl-item-${ev.kind}` }, el('span', { class: 'tl-time' }, when), body);
+}
+
+function renderPackage(pkg) {
+  const cities = pkg.plan.map((p) => `${p.city} ${p.nights}n`).join(' → ');
+  const t = pkg.traveler ?? {};
+  const people = plural(t.adults, 'adult') + (t.children ? `, ${plural(t.children, 'child', 'children')}` : '');
+  const header = el(
+    'div',
+    { class: 'card pkg-header' },
+    button('← New search', 'btn btn-link', closePackage),
+    el(
+      'div',
+      { class: 'pkg-badges' },
+      pkg.label ? el('span', { class: `pkg-label pkg-${pkg.label}` }, labelName[pkg.label] ?? pkg.label) : null,
+      el('span', { class: `pkg-label pkg-status-${String(pkg.status).toLowerCase()}` },
+        pkg.status === 'BOOKED' ? 'Booked' : 'Planned'),
+    ),
+    el('h2', {}, `${pkg.country}: ${cities}`),
+    el('p', { class: 'muted' }, `${fmtDateLong(pkg.start_date)} to ${fmtDateLong(pkg.end_date)} · ${people}`),
+    el(
+      'dl',
+      { class: 'pkg-stats' },
+      el('div', {}, el('dt', {}, 'Travel time'), el('dd', {}, hm(pkg.metrics.travel_minutes))),
+      el('div', {}, el('dt', {}, 'Average hotel stars'), el('dd', {}, `${pkg.metrics.avg_stars} ★`)),
+    ),
+  );
+
+  const timeline = el('ol', { class: 'timeline' });
+  const start = utcDay(pkg.start_date).getTime();
+  for (const [date, evs] of timelineDays(pkg)) {
+    const n = Math.round((utcDay(date).getTime() - start) / 86400000) + 1;
+    timeline.append(el(
+      'li',
+      { class: 'tl-day' },
+      el('h3', { class: 'tl-date' }, fmtDateLong(date),
+        el('span', { class: 'muted' }, ` · ${n >= 1 ? `Day ${n}` : 'Before day 1'} · ${cityOn(pkg, date)}`)),
+      el('ul', { class: 'tl-list' }, ...evs.map(eventNode)),
+    ));
+  }
+
+  pkgView.replaceChildren(
+    header,
+    el(
+      'section',
+      { class: 'card' },
+      el('h2', {}, 'Day by day'),
+      timeline,
+      el('p', { class: 'credits' }, 'Attraction photos from Wikimedia Commons. ',
+        el('a', { href: '/images/ATTRIBUTIONS.md', target: '_blank', rel: 'noopener' }, 'Photo credits')),
+    ),
+  );
+  updateBar(pkg);
+}
+
+// ---------- views + URL (?package=<id> restores the package view after a refresh) ----------
+
+function showFormView() {
+  pkgView.hidden = true;
+  bar.hidden = true;
+  form.hidden = false;
+  resultEl.hidden = resultEl.childElementCount === 0;
+}
+
+let loadSeq = 0;
+
+async function loadPackageView(id) {
+  const seq = ++loadSeq;
+  form.hidden = true;
+  resultEl.hidden = true;
+  bar.hidden = true;
+  pkgView.hidden = false;
+  pkgView.replaceChildren(el('div', { class: 'card' }, el('p', { class: 'muted' }, 'Loading package…')));
+  window.scrollTo({ top: 0 });
+  try {
+    const res = await fetch(`/api/packages/${encodeURIComponent(id)}`);
+    const pkg = await res.json().catch(() => null);
+    if (res.status === 404) throw new Error('This package does not exist (any more). Build a new one.');
+    if (!res.ok || !pkg) throw new Error(pkg?.error || `HTTP ${res.status}`);
+    if (seq === loadSeq) renderPackage(pkg);
+  } catch (err) {
+    if (seq !== loadSeq) return;
+    pkgView.replaceChildren(
+      banner('error', 'Could not load the package.', [err.message]),
+      button('← New search', 'btn btn-secondary', closePackage),
+    );
+  }
+}
+
+function openPackage(id) {
+  history.pushState({ package: id }, '', `?package=${encodeURIComponent(id)}`);
+  loadPackageView(id);
+}
+
+function closePackage() {
+  loadSeq++;
+  history.pushState({}, '', location.pathname);
+  showFormView();
+  window.scrollTo({ top: 0 });
+}
+
+function route() {
+  const id = new URLSearchParams(location.search).get('package');
+  if (id) loadPackageView(id);
+  else showFormView();
+}
+
+window.addEventListener('popstate', route);
 
 // ---------- submit ----------
 
@@ -318,3 +622,4 @@ form.addEventListener('submit', async (e) => {
 
 
 loadMeta();
+route();
