@@ -227,6 +227,8 @@ function banner(kind, title, lines = []) {
 }
 
 const hm = (minutes) => `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m`;
+/** Average hotel stars as "3.00 ★" (metrics.avg_stars is a number rounded to 2 decimals). */
+const stars = (n) => `${Number(n).toFixed(2)} ★`;
 const plural = (n, word, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
 
 function button(label, cls, onClick) {
@@ -250,7 +252,7 @@ function packageCard(pkg) {
       el('div', {}, el('dt', {}, 'Total'), el('dd', { class: 'pkg-total' }, inr(pkg.total_inr))),
       el('div', {}, el('dt', {}, 'Budget left'), el('dd', { class: 'money-ok' }, inr(pkg.left_inr))),
       el('div', {}, el('dt', {}, 'Travel time'), el('dd', {}, hm(pkg.metrics.travel_minutes))),
-      el('div', {}, el('dt', {}, 'Average hotel stars'), el('dd', {}, `${pkg.metrics.avg_stars} ★`)),
+      el('div', {}, el('dt', {}, 'Average hotel stars'), el('dd', {}, stars(pkg.metrics.avg_stars))),
     ),
     button('View package', 'btn btn-primary btn-view', () => openPackage(pkg.id)),
   );
@@ -552,7 +554,7 @@ function renderPackage(pkg, reservation = null) {
       'dl',
       { class: 'pkg-stats' },
       el('div', {}, el('dt', {}, 'Travel time'), el('dd', {}, hm(pkg.metrics.travel_minutes))),
-      el('div', {}, el('dt', {}, 'Average hotel stars'), el('dd', {}, `${pkg.metrics.avg_stars} ★`)),
+      el('div', {}, el('dt', {}, 'Average hotel stars'), el('dd', {}, stars(pkg.metrics.avg_stars))),
     ),
   );
 
@@ -625,6 +627,7 @@ function parsePlanId(id) {
 function optionInfo(d = {}) {
   const bits = [];
   if (d.stars != null) bits.push(`${d.stars} ★`);
+  if (d.cities && d.avg_stars != null) bits.push(`avg ${stars(d.avg_stars)}`);
   if (d.area) bits.push(d.area);
   if (d.date) bits.push(fmtDateShort(d.date));
   if (d.start && d.end) bits.push(`${timeOf(d.start) ?? d.start} – ${timeOf(d.end) ?? d.end}`);
