@@ -470,6 +470,16 @@ function eventActions(ev, pkg) {
   return acts.length ? el('div', { class: 'tl-actions' }, ...acts) : null;
 }
 
+/** A hotel item's warnings cover both ends of the stay; show each one only on the row it is about. */
+function warningsFor(ev) {
+  const all = ev.item.warnings ?? [];
+  if (ev.kind === 'check-in') return all.filter((w) => /check-in|arrive|after midnight/i.test(w));
+  if (ev.kind === 'check-out') {
+    return all.filter((w) => /check[ -]out|pickup/i.test(w) && !/check-in|arrive|after midnight/i.test(w));
+  }
+  return all;
+}
+
 function eventNode(ev, pkg) {
   const { item } = ev;
   let title = item.name;
@@ -505,7 +515,7 @@ function eventNode(ev, pkg) {
       ev.kind === 'check-out' ? null : el('span', { class: 'tl-price' }, inr(item.price_inr)),
     ),
     details.length ? el('p', { class: 'tl-detail muted' }, details.join(' · ')) : null,
-    ...(item.warnings ?? []).map((w) => el('p', { class: 'tl-warning' }, w)),
+    ...warningsFor(ev).map((w) => el('p', { class: 'tl-warning' }, w)),
     eventActions(ev, pkg),
   );
   if (item.type === 'attraction' && item.catalog_id) {
@@ -628,6 +638,7 @@ function optionInfo(d = {}) {
   const bits = [];
   if (d.stars != null) bits.push(`${d.stars} ★`);
   if (d.cities && d.avg_stars != null) bits.push(`avg ${stars(d.avg_stars)}`);
+  if (d.cities && d.travel_minutes != null) bits.push(`travel ${hm(d.travel_minutes)}`);
   if (d.area) bits.push(d.area);
   if (d.date) bits.push(fmtDateShort(d.date));
   if (d.start && d.end) bits.push(`${timeOf(d.start) ?? d.start} – ${timeOf(d.end) ?? d.end}`);
@@ -637,7 +648,7 @@ function optionInfo(d = {}) {
 
 function optionNode(o, makeChange, successText) {
   const current = o.detail?.current === true;
-  const delta = Number(o.price_delta_inr) || 0;
+  const delta = o.price_delta_inr == null ? null : Number(o.price_delta_inr); // null on invalid options
   const info = optionInfo(o.detail);
   const b = el(
     'button',
@@ -652,7 +663,7 @@ function optionNode(o, makeChange, successText) {
     el(
       'span',
       { class: `opt-delta ${delta > 0 ? 'delta-up' : delta < 0 ? 'delta-down' : ''}` },
-      current ? 'Current' : fmtDelta(delta),
+      current ? 'Current' : delta == null ? '—' : fmtDelta(delta),
     ),
   );
   b.disabled = !o.valid || current;
@@ -752,6 +763,7 @@ function showFormView() {
   pkgView.hidden = true;
   bar.hidden = true;
   form.hidden = false;
+  quickForm.hidden = false;
   resultEl.hidden = resultEl.childElementCount === 0;
 }
 
@@ -761,6 +773,7 @@ async function loadPackageView(id) {
   const seq = ++loadSeq;
   leavePackage();
   form.hidden = true;
+  quickForm.hidden = true;
   resultEl.hidden = true;
   bar.hidden = true;
   pkgView.hidden = false;
@@ -887,6 +900,7 @@ async function loadReservationView(ref) {
   const seq = ++loadSeq;
   leavePackage();
   form.hidden = true;
+  quickForm.hidden = true;
   resultEl.hidden = true;
   bar.hidden = true;
   pkgView.hidden = false;
@@ -920,6 +934,106 @@ function openReservation(ref) {
   history.pushState({ reservation: ref }, '', `?reservation=${encodeURIComponent(ref)}`);
   loadReservationView(ref);
 }
+
+// ---------- quick request (S1): POST /api/parse-request → fill the form, mark what is missing ----------
+
+const quickForm = document.getElementById('quick-form');
+const quickResult = document.getElementById('quick-result');
+const quickBtn = document.getElementById('quick-submit');
+
+const MISSING_MSG = {
+  departureAirport: 'Not found in your request: choose a departure city.',
+  country: 'Not found in your request: choose a country.',
+  startDate: 'Not found in your request: pick a start date.',
+  nights: 'Not found in your request: enter the number of nights.',
+  adults: 'Not found in your request: enter the number of adults.',
+  childAges: 'Add each child\'s age (0–17).',
+  budgetInr: 'Not found in your request: enter your budget.',
+};
+const FIELD_NAME = {
+  departureAirport: 'departure city', country: 'country', startDate: 'start date', nights: 'nights',
+  adults: 'adults', childAges: 'children\'s ages', budgetInr: 'budget',
+};
+
+function flash(input) {
+  input.classList.add('flash');
+  setTimeout(() => input.classList.remove('flash'), 1600);
+}
+
+/**
+ * Put the parsed fields into the form. Fields the parser did not find are emptied (not left at the sample values),
+ * so the form cannot be sent with a guess the traveler never made. childAges missing = kids without ages: keep the
+ * child rows the user already has.
+ */
+function applyParsed({ fields, missing }) {
+  clearAllErrors();
+  for (const name of ['departureAirport', 'country', 'startDate', 'nights', 'adults', 'budgetInr']) {
+    const input = form[name];
+    if (name in fields) {
+      input.value = String(fields[name]);
+      // A select ignores values it has no option for; treat that as missing.
+      if (input.value !== String(fields[name])) {
+        input.value = '';
+        if (!missing.includes(name)) missing = [...missing, name];
+      } else flash(input);
+    } else if (missing.includes(name)) {
+      input.value = '';
+    }
+    input.dispatchEvent(new Event('change', { bubbles: true })); // updates the country cities / budget hints
+  }
+  form.budgetInr.dispatchEvent(new Event('input', { bubbles: true }));
+  if (Array.isArray(fields.childAges)) {
+    childList.replaceChildren();
+    for (const age of fields.childAges) flash(addChild(age));
+  }
+  // dispatching input events above clears errors, so mark missing fields last
+  clearAllErrors();
+  for (const name of missing) setError(name, MISSING_MSG[name] ?? 'Please fill this in.');
+  return missing;
+}
+
+quickForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const text = quickForm.text.value.trim();
+  if (!text) {
+    quickResult.replaceChildren(el('p', { class: 'field-error' }, 'Type your trip first, e.g. "2 adults from Delhi to Dubai for 5 nights from 12 April, ₹2 lakh".'));
+    quickForm.text.focus();
+    return;
+  }
+  quickBtn.disabled = true;
+  quickBtn.textContent = 'Reading…';
+  try {
+    const res = await fetch('/api/parse-request', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.fields) throw new Error(data?.error || `HTTP ${res.status}`);
+    const missing = applyParsed({ fields: data.fields, missing: data.missing ?? [] });
+    const filled = Object.keys(data.fields).filter((f) => !missing.includes(f) && FIELD_NAME[f]);
+    const lines = [];
+    if (filled.length) lines.push(`Filled in: ${filled.map((f) => FIELD_NAME[f]).join(', ')}.`);
+    if (missing.length) lines.push(`Still needed (marked in red below): ${missing.map((f) => FIELD_NAME[f] ?? f).join(', ')}.`);
+    lines.push(...(data.notes ?? []));
+    quickResult.replaceChildren(banner(missing.length ? 'warn' : 'ok',
+      missing.length ? 'Form partly filled. Please complete it' : 'Form filled. Check it and build', lines));
+    resultEl.hidden = true;
+    const firstMissing = form.querySelector('.field.invalid input, .field.invalid select');
+    (firstMissing ?? (missing.includes('childAges') ? document.getElementById('add-child') : submitBtn)).focus();
+    form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (err) {
+    quickResult.replaceChildren(banner('error', 'Could not read the request.', [err.message]));
+  } finally {
+    quickBtn.disabled = false;
+    quickBtn.textContent = 'Fill the form';
+  }
+});
+
+// Ctrl/Cmd+Enter in the text box = "Fill the form".
+quickForm.text.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) quickForm.requestSubmit();
+});
 
 function route() {
   const params = new URLSearchParams(location.search);

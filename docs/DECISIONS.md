@@ -186,6 +186,7 @@
   named, the one after "from" wins. Two countries named means `country` is missing. Lakh/crore/k amounts are scaled
   with integer arithmetic (money is integer INR). Why: a quick text box for the request form. The parser only
   fills fields; `buildPackages` still validates everything.
+<<<<<<< HEAD
 - **2026-11-13 — G1: changes fix or warn about the bookings they affect.** Hotel `check_in_from` /
   `check_out_until` are display-only in the spec, so they only ever produce warnings, never refusals. Every hotel
   item carries the current problems of its stay in `warnings`: arriving before check-in, arriving after midnight,
@@ -198,3 +199,18 @@
   up about the accommodation check in times"). Before this, nothing mentioned the hotel times, and a visit pushed
   by another visit was wrongly reported as "to start after the traveler arrives". CONTRACT §4 `applyChange` notes
   the new warning lines and non-empty hotel item `warnings`. This is additive; Person B to acknowledge.
+=======
+- **2026-11-13 — Quick request wired up (Person B acknowledges `parseRequest`).** `POST /api/parse-request` takes
+  `{ text }` and returns the engine's `{ fields, missing, notes }` unchanged. A text that is not a string, or is
+  over 1000 characters, gets 400. The "Quick request" box above the form only fills the form; it never builds.
+  Found fields are filled and flash. Fields the parser did not find are **emptied**, not left at the sample
+  values, and marked red ("Not found in your request: …"). This means the form is never sent with a value the
+  traveler did not give. A country or city the dropdown does not know counts as missing. `childAges` missing
+  (kids without ages) keeps the child rows the user already has and marks the children box. Notes, plus "Filled
+  in: …" / "Still needed: …", show in a banner under the box.
+- **2026-11-13 — Invalid change options show "—" instead of a price.** `getOptions` now sends
+  `price_delta_inr: null` for invalid options. City-plan options also show the travel time, next to the average
+  stars.
+- **2026-11-13 — Root `README.md`** has the start commands, architecture, our city rule, the feature status (M1–M8,
+  G1–G4, S1–S2) and known limitations. `docs/README.md` stays the data pack's own guide.
+>>>>>>> 77bd22167c41b60b5b605b8902ef8f6446b9f582

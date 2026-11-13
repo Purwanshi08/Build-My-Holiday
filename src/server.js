@@ -10,6 +10,7 @@ import {
   applyChange,
   validatePackage,
   exportTrip,
+  parseRequest,
 } from './engine/index.js';
 import * as store from './db.js';
 
@@ -33,6 +34,14 @@ function loadPackage(req, res, next) {
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
 app.get('/api/meta', (_req, res) => res.json(getMeta()));
+
+// Quick request (S1): plain words → { fields, missing, notes } via the engine's rule-based parser (no AI).
+app.post('/api/parse-request', (req, res) => {
+  const text = req.body?.text;
+  if (typeof text !== 'string') return res.status(400).json({ error: 'text must be a string' });
+  if (text.length > 1000) return res.status(400).json({ error: 'text is too long (max 1000 characters)' });
+  res.json(parseRequest(text));
+});
 
 app.post('/api/packages/build', (req, res) => {
   const request = req.body ?? {};
