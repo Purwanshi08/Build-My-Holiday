@@ -27,3 +27,16 @@
 - **2026-11-13 — Stub status triggers** (until the real engine lands): invalid fields → `INVALID_REQUEST`;
   dates outside the window or country ≠ Japan → `NO_PACKAGE`; budget below the stub's Menon total (₹2,48,290)
   → `OVER_BUDGET`; otherwise `OK` with the Menon package (labelled cheapest / fastest / best_rated copies).
+- **2026-11-13 — Server/db shape.** `app.db` in the repo root (override with `$DB_PATH`, used for tests), tables
+  created on start. `booked_flights` keyed by `flight_id`, `booked_rooms` by `(room_id, date)`; confirming adds to
+  the counts. Built packages are upserted by `id` (the stub reuses ids). Engine results are always HTTP 200
+  (including `INVALID_REQUEST`, `OVER_BUDGET`, refused changes with `ok:false`); HTTP errors only for unknown ids
+  (404 `{"error":"not found"}`), malformed bodies / missing `kind` (400) and the unimplemented confirm (501).
+  Changes to a `BOOKED` package are refused with `ok:false`. `GET /api/reservations/:ref` returns
+  `{ reference, package_id, created_at, package }`.
+- **2026-11-13 — Request form (public/).** Plain HTML/JS/CSS, no build step. The client never blocks dates outside
+  1–20 April; on `NO_PACKAGE` it shows the reasons in a red banner and marks the date field only when a reason
+  starts with "Flights and rooms are only available" (the contract's window prefix), since other reasons (no
+  flight, no rooms) are not fixed by changing the date alone. Child ages and budget must be whole numbers
+  (contract types are integers). Form starts with sample values (10 Apr, 6 nights, 2 adults,
+  ₹3,50,000), no children and both dropdowns unselected.

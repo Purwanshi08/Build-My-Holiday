@@ -1,5 +1,3 @@
-// SQLite storage (better-sqlite3): app.db in the repo root, created with its tables on first start.
-// Holds saved packages, reservations and our own booked seats/rooms, from which the engine ctx is built.
 import Database from 'better-sqlite3';
 import { fileURLToPath } from 'node:url';
 
