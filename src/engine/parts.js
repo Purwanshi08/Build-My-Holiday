@@ -14,6 +14,7 @@ export function requestOf(pkg) {
     adults: pkg.traveler.adults,
     childAges: [...pkg.traveler.child_ages],
     budgetInr: pkg.budget_inr,
+    includeStay: pkg.items.some((i) => i.type === 'hotel'),
   };
 }
 
@@ -44,9 +45,11 @@ export function decompose(pkg, ctx) {
 
   const stays = pkg.plan.map((p) => {
     const room = roomById.get(p.room_id);
+    const hotel = hotelById.get(p.hotel_id);
     return {
       city: p.city, nights: p.nights, checkIn: p.check_in, checkOut: p.check_out,
-      hotel: hotelById.get(p.hotel_id), room, k: p.rooms, price: hotelPrice(room, p.rooms, p.nights),
+      hotel: hotel ?? null, room: room ?? null, k: p.rooms ?? 0,
+      price: hotel && room ? hotelPrice(room, p.rooms, p.nights) : 0,
       arrive: null, depart: null,
     };
   });

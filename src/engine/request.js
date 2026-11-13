@@ -32,6 +32,9 @@ export function validateRequest(req) {
   if (!Number.isInteger(r.budgetInr) || r.budgetInr < 1) {
     errors.budgetInr = 'Budget must be a whole number of rupees above 0.';
   }
+  if (r.includeStay !== undefined && typeof r.includeStay !== 'boolean') {
+    errors.includeStay = 'includeStay must be true or false.';
+  }
   return errors;
 }
 

@@ -66,6 +66,12 @@ function buildView(pkg, ctx) {
   const outbound = flights.filter((f) => f.rec.from === tr.home_airport);
   const inbound = flights.filter((f) => f.rec.to === tr.home_airport);
 
+  const transfers = of('transfer');
+  const airportTransfers = transfers.filter((t) => t.rec.airport).sort((a, b) => (a.it.start < b.it.start ? -1 : 1));
+  const intercity = transfers.filter((t) => t.rec.from_city && t.rec.to_city)
+    .sort((a, b) => (a.it.start < b.it.start ? -1 : a.it.start > b.it.start ? 1 : 0));
+  const cityTransfers = transfers.filter((t) => !t.rec.airport && !(t.rec.from_city && t.rec.to_city));
+
   // Hotel stays: consecutive hotel items in the same city form one stay.
   const hotels = of('hotel').sort((a, b) => (a.it.start < b.it.start ? -1 : a.it.start > b.it.start ? 1 : 0));
   const stays = [];
@@ -79,21 +85,38 @@ function buildView(pkg, ctx) {
       stays.push({ city: h.rec.city, start: h.it.start, end: h.it.end, hotels: [h], nights: [...h.nights] });
     }
   }
-  const nightCity = new Map(); // date -> city of that night's hotel
-  for (const h of hotels) for (const n of h.nights) if (!nightCity.has(n)) nightCity.set(n, h.rec.city);
 
-  const transfers = of('transfer');
-  const airportTransfers = transfers.filter((t) => t.rec.airport).sort((a, b) => (a.it.start < b.it.start ? -1 : 1));
-  const intercity = transfers.filter((t) => t.rec.from_city && t.rec.to_city);
-  const cityTransfers = transfers.filter((t) => !t.rec.airport && !(t.rec.from_city && t.rec.to_city));
+  // City route: from hotel stays, or from the airport/intercity transfers when the package has no hotel.
+  let planStays;
+  let changes;
+  if (stays.length) {
+    planStays = stays;
+    changes = stays.slice(1).map((s, i) => ({ date: s.start, from: stays[i].city, to: s.city }));
+  } else {
+    changes = intercity.map((t) => ({ date: dateOf(t.it.start), from: t.rec.from_city, to: t.rec.to_city }));
+    planStays = [];
+    const firstCity = airportTransfers[0]?.rec.city ?? null;
+    if (firstCity && isDate(start) && isDate(end)) {
+      let city = firstCity;
+      let from = start;
+      for (const c of changes) {
+        if (c.date <= from || c.date >= end) continue;
+        planStays.push({ city, start: from, end: c.date, hotels: [], nights: datesBetween(from, c.date) });
+        city = c.to;
+        from = c.date;
+      }
+      planStays.push({ city, start: from, end, hotels: [], nights: datesBetween(from, end) });
+    }
+  }
 
-  // City-change days: check-in date of every stay after the first, with the cities left and reached.
-  const changes = stays.slice(1).map((s, i) => ({ date: s.start, from: stays[i].city, to: s.city }));
+  const nightCity = new Map(); // date -> city of that night
+  for (const s of planStays) for (const n of s.nights) if (!nightCity.has(n)) nightCity.set(n, s.city);
 
   return {
     pkg, ctx, items, tr, adults, children, travelers: adults + children, start, end, country,
-    flights, outbound, inbound, hotels, stays, nightCity, transfers, airportTransfers, intercity, cityTransfers,
-    changes, attractions: of('attraction'), resolved,
+    flights, outbound, inbound, hotels, stays, planStays, nightCity, transfers, airportTransfers, intercity,
+    cityTransfers, changes, firstCity: planStays[0]?.city ?? null, lastCity: planStays.at(-1)?.city ?? null,
+    attractions: of('attraction'), resolved,
   };
 }
 
@@ -215,19 +238,19 @@ function checkDataWindow(v) {
   return out;
 }
 
-/** Country is a catalog destination and every hotel city belongs to it. */
+/** Country is a catalog destination and every city in the route belongs to it. */
 function checkCountry(v) {
   if (!v.country) return [`Country "${v.pkg?.country}" is not a destination country.`];
   const cities = new Set(v.country.cities.map((c) => c.name));
-  return v.stays.filter((s) => !cities.has(s.city)).map((s) => `City ${s.city} is not in ${v.country.name}.`);
+  return v.planStays.filter((s) => !cities.has(s.city)).map((s) => `City ${s.city} is not in ${v.country.name}.`);
 }
 
 /** Each city appears once in the plan, with at least min_nights_per_city nights in a row. */
 function checkCityPlan(v) {
   const out = [];
-  if (v.stays.length === 0) return ['Package has no hotel.'];
+  if (v.planStays.length === 0) return ['Package has no city plan.'];
   const seen = new Set();
-  for (const s of v.stays) {
+  for (const s of v.planStays) {
     if (seen.has(s.city)) out.push(`City ${s.city} appears more than once in the plan.`);
     seen.add(s.city);
     if (s.nights.length < RULES.min_nights_per_city) {
@@ -239,6 +262,7 @@ function checkCityPlan(v) {
 
 /** One hotel for every night start_date..end_date−1, never two, none on the last day. */
 function checkHotelNights(v) {
+  if (v.hotels.length === 0) return []; // no-stay package: the traveler arranges their own accommodation
   if (!isDate(v.start) || !isDate(v.end)) return [];
   const out = [];
   const count = new Map();
@@ -313,7 +337,7 @@ function checkArrivalFlight(v) {
   const { it, rec } = v.outbound[0];
   const out = [];
   if (dateOf(rec.arrival_local) !== v.start) out.push(`${tag(it)}: lands on ${dateOf(rec.arrival_local)}, not the start date ${v.start}.`);
-  const first = v.stays[0]?.city;
+  const first = v.firstCity;
   if (first && !cat.airportsServing(first).includes(rec.to)) out.push(`${tag(it)}: lands at ${rec.to}, which does not serve ${first}.`);
   return out;
 }
@@ -324,7 +348,7 @@ function checkReturnFlight(v) {
   const { it, rec } = v.inbound[0];
   const out = [];
   if (dateOf(rec.departure_local) !== v.end) out.push(`${tag(it)}: leaves on ${dateOf(rec.departure_local)}, not the last day ${v.end}.`);
-  const last = v.stays.at(-1)?.city;
+  const last = v.lastCity;
   if (last && !cat.airportsServing(last).includes(rec.from)) out.push(`${tag(it)}: leaves from ${rec.from}, which does not serve ${last}.`);
   return out;
 }
@@ -345,15 +369,14 @@ function checkAirportTransferCount(v) {
   return n === 2 ? [] : [`Package needs exactly 2 airport transfers (arrival and return); has ${n}.`];
 }
 
-/** Common airport-transfer rules: right airport, serves hotel city and area, pickup inside service hours. */
-function airportTransferBasics(v, t, airport, stay, label) {
+/** Common airport-transfer rules: right airport, serves the city (and hotel area), pickup inside service hours. */
+function airportTransferBasics(v, t, airport, city, hotel, label) {
   const out = [];
   const { it, rec } = t;
   if (airport && rec.airport !== airport) out.push(`${tag(it)}: ${label} transfer is from ${rec.airport}, flight uses ${airport}.`);
-  const hotel = stay?.hotels[0]?.rec;
-  if (hotel) {
-    if (rec.city !== hotel.city) out.push(`${tag(it)}: ${label} transfer serves ${rec.city}, hotel is in ${hotel.city}.`);
-    else if (rec.area != null && rec.area !== hotel.area) out.push(`${tag(it)}: ${label} transfer serves ${rec.area}, hotel is in ${hotel.area}.`);
+  if (city && rec.city !== city) out.push(`${tag(it)}: ${label} transfer serves ${rec.city}, the ${label === 'arrival' ? 'first' : 'last'} city is ${city}.`);
+  else if (hotel && rec.area != null && rec.area !== hotel.area) {
+    out.push(`${tag(it)}: ${label} transfer serves ${rec.area}, hotel is in ${hotel.area}.`);
   }
   if (!inWindow(timeOf(it.start), rec.service_from, rec.service_until)) {
     out.push(`${tag(it)}: pickup ${timeOf(it.start)} is outside service hours ${rec.service_from}–${rec.service_until}.`);
@@ -361,12 +384,12 @@ function airportTransferBasics(v, t, airport, stay, label) {
   return out;
 }
 
-/** Arrival transfer: from the arrival airport to the first hotel, pickup ≥ 60 min after landing. */
+/** Arrival transfer: from the arrival airport to the first hotel (or city), pickup ≥ 60 min after landing. */
 function checkArrivalTransfer(v) {
   if (v.airportTransfers.length !== 2) return [];
   const t = v.airportTransfers[0];
   const flight = v.outbound.length === 1 ? v.outbound[0].rec : null;
-  const out = airportTransferBasics(v, t, flight?.to, v.stays[0], 'arrival');
+  const out = airportTransferBasics(v, t, flight?.to, v.firstCity, v.stays[0]?.hotels[0]?.rec, 'arrival');
   if (flight) {
     const earliest = addMinutes(dt(flight.arrival_local), 60);
     if (dt(t.it.start) < earliest) out.push(`${tag(t.it)}: pickup ${dt(t.it.start)} is less than 60 min after landing (earliest ${earliest}).`);
@@ -374,12 +397,12 @@ function checkArrivalTransfer(v) {
   return out;
 }
 
-/** Return transfer: last hotel to the return airport, reaching it ≥ 180 min before departure. */
+/** Return transfer: last hotel (or city) to the return airport, reaching it ≥ 180 min before departure. */
 function checkReturnTransfer(v) {
   if (v.airportTransfers.length !== 2) return [];
   const t = v.airportTransfers[1];
   const flight = v.inbound.length === 1 ? v.inbound[0].rec : null;
-  const out = airportTransferBasics(v, t, flight?.from, v.stays.at(-1), 'return');
+  const out = airportTransferBasics(v, t, flight?.from, v.lastCity, v.stays.at(-1)?.hotels[0]?.rec, 'return');
   if (flight) {
     const reach = addMinutes(dt(t.it.start), t.rec.duration_minutes);
     const latest = addMinutes(dt(flight.departure_local), -180);

@@ -71,6 +71,11 @@ const airportTransfersByKey = groupBy(
   transfers.filter((t) => t.airport),
   (t) => key(t.airport, t.city, t.area ?? '*'),
 );
+// Every airport transfer for a city, whatever area it serves (used when the traveler has no hotel).
+const airportTransfersByCity = groupBy(
+  transfers.filter((t) => t.airport),
+  (t) => key(t.airport, t.city),
+);
 // Transfers between cities by "from_city|to_city", resolved from destinations.json links.
 const intercityByCities = new Map();
 for (const country of destinations.countries) {
@@ -100,6 +105,10 @@ export function airportTransfers(airport, city, area) {
   const specific = area == null ? EMPTY : airportTransfersByKey.get(key(airport, city, area)) ?? EMPTY;
   return [...specific, ...(airportTransfersByKey.get(key(airport, city, '*')) ?? EMPTY)];
 }
+
+/** Every airport transfer from `airport` to `city`, whatever area (no hotel to match an area against). */
+export const airportTransfersToCity = (airport, city) =>
+  airportTransfersByCity.get(key(airport, city)) ?? EMPTY;
 
 /** Airport codes whose serves_cities contains the city. */
 export const airportsServing = (city) =>
