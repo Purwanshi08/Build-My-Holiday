@@ -470,6 +470,16 @@ function eventActions(ev, pkg) {
   return acts.length ? el('div', { class: 'tl-actions' }, ...acts) : null;
 }
 
+/** A hotel item's warnings cover both ends of the stay; show each one only on the row it is about. */
+function warningsFor(ev) {
+  const all = ev.item.warnings ?? [];
+  if (ev.kind === 'check-in') return all.filter((w) => /check-in|arrive|after midnight/i.test(w));
+  if (ev.kind === 'check-out') {
+    return all.filter((w) => /check[ -]out|pickup/i.test(w) && !/check-in|arrive|after midnight/i.test(w));
+  }
+  return all;
+}
+
 function eventNode(ev, pkg) {
   const { item } = ev;
   let title = item.name;
@@ -505,7 +515,7 @@ function eventNode(ev, pkg) {
       ev.kind === 'check-out' ? null : el('span', { class: 'tl-price' }, inr(item.price_inr)),
     ),
     details.length ? el('p', { class: 'tl-detail muted' }, details.join(' · ')) : null,
-    ...(item.warnings ?? []).map((w) => el('p', { class: 'tl-warning' }, w)),
+    ...warningsFor(ev).map((w) => el('p', { class: 'tl-warning' }, w)),
     eventActions(ev, pkg),
   );
   if (item.type === 'attraction' && item.catalog_id) {
