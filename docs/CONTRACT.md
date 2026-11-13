@@ -167,6 +167,24 @@ Re-checks every rule of problem §4 (and totals). Empty array = correct.
   e.g. "Airport transfer re-timed to 14:10 after flight change".
 - `delta_inr` = new total − old total.
 
+### `parseRequest(text) -> { fields, missing, notes }`
+Turns a short plain-words request into Request fields (§1) with regexes and keyword lists only (no AI).
+Example: `"Me and my wife from Delhi to Dubai for a week starting April 12, ₹2,00,000"` →
+```json
+{ "fields": { "departureAirport": "DEL", "country": "United Arab Emirates", "startDate": "2027-04-12",
+              "nights": 7, "adults": 2, "childAges": [], "budgetInr": 200000 },
+  "missing": [],
+  "notes": ["\"a week\" read as 7 nights.", "Dubai is in United Arab Emirates, so the country is United Arab Emirates.",
+            "No year given for \"april 12\"; assumed 2027."] }
+```
+- `fields` holds only the fields that were found. `childAges` is `[]` when no children are mentioned.
+- `missing` lists the Request field names that were not found, in §1 order. Children mentioned without every age
+  (e.g. "2 kids") puts `childAges` in `missing`. Two countries mentioned puts `country` in `missing`.
+- `notes` are short, user-facing English explaining guesses, e.g. a city implying the country, the assumed year 2027,
+  "12/04/2027" read as day/month, "5 days" read as 4 nights, or "mid April" read as 15 April and moved earlier so the
+  trip returns by 20 April. They also include `validateRequest` messages for found fields that are out of range.
+- It never throws. The caller still sends the final Request through `buildPackages`, which validates it as usual.
+
 ### `exportTrip(pkg) -> object`
 The judge-facing JSON: `{ trip_id, traveler, start_date, end_date, country, budget_inr, total_inr, status, items }`
 (DATA_DICTIONARY §4 minimum fields + `status`). No `plan`/`metrics`/`label`.

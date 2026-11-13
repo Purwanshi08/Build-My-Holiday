@@ -177,3 +177,12 @@
   is re-checked against flights.json. The PRNG is seeded (`FUZZ_SEED` env var, default 20270401) so failures can be
   replayed. Why: the hand-written tests cover a few requests; this one covers the request space. Without the bias,
   ~60% of random trips ran past 20 April and only tested the window check.
+- **2026-11-13 — `parseRequest(text)` in `src/engine/parse.js` (rule-based, no AI), added to CONTRACT §4.** This is
+  an additive contract change. No existing signature changed. Person B should acknowledge it before wiring it into
+  the UI. Reading rules: "12/04/2027" is day/month (Indian convention). A date without a year is 2027 (the only data
+  year). "N days" = N−1 nights. "a week" = 7 nights. early/mid/late month = the 5th/15th/25th. A vague date is moved
+  earlier when the return would pass 20 April. "family of N" / "N of us" minus the children found = adults.
+  "2 kids" without ages is reported as missing `childAges` and never guessed. When several departure cities are
+  named, the one after "from" wins. Two countries named means `country` is missing. Lakh/crore/k amounts are scaled
+  with integer arithmetic (money is integer INR). Why: a quick text box for the request form. The parser only
+  fills fields; `buildPackages` still validates everything.
