@@ -53,10 +53,10 @@
   named check in `CHECKS`. A check that throws becomes a violation, so `validatePackage` never throws.
 - **2026-11-13 — Validation details.** Airport transfers: there must be exactly 2. Sorted by pickup, the first is
   the arrival transfer and the second the return transfer. "Reached the city" means the arrival transfer's pickup
-  + duration on the arrival day (landing + 60 if there is no transfer), and the between-cities transfer's pickup +
-  duration on a city-change day. City-change day = check-in date of every stay after the first. Optional city
-  taxis must be in a city of that day and inside their service hours. Prices: each item must be within 1% of the
-  catalog formula. `total_inr` must equal the sum of item prices exactly and be within 1% of the catalog total.
+  - duration on the arrival day (landing + 60 if there is no transfer), and the between-cities transfer's pickup +
+    duration on a city-change day. City-change day = check-in date of every stay after the first. Optional city
+    taxis must be in a city of that day and inside their service hours. Prices: each item must be within 1% of the
+    catalog formula. `total_inr` must equal the sum of item prices exactly and be within 1% of the catalog total.
 - **2026-11-13 — The "1–2 attractions on every full day" rule is checked on every package, not only the first.**
   The judges' tool cannot tell a first package from an edited one. So removing a day's last attraction, or adding
   a third, is refused (M6 allows "refuses the change with a reason").
@@ -111,5 +111,5 @@
   one kind at a time (nights, date, country, departure) so they differ; within a kind the smallest change wins
   (nights: most nights; dates: nearest; country/departure: cheapest). If none fit, we return the 3 lowest totals
   and say how far over each one still is. "Raise the budget to at least ₹X" is used only when no variation can be
-  built. Suggestions run only the *cheap* strategy (it always holds the cheapest total). Menon at ₹1,50,000
+  built. Suggestions run only the _cheap_ strategy (it always holds the cheapest total). Menon at ₹1,50,000
   takes ~0.5 s.

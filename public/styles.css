@@ -1,4 +1,4 @@
-/* Styles for the Build My Holiday request form and result cards: clean, single column on phones. */
+/* Styles for the Build My Holiday form, result cards, package timeline and sticky budget bar; one column on phones. */
 /* Invalid fields get a red border plus a message; NO_PACKAGE / over-budget answers show as banners. */
 
 :root {
@@ -160,8 +160,97 @@ fieldset.field.invalid { border-color: var(--error); }
 .pkg-stats dd { margin: 0; font-weight: 600; }
 .pkg-total { color: var(--primary-dark); font-size: 1.15rem; }
 
+/* ---------- results ---------- */
+
+.pkg-card { display: flex; flex-direction: column; }
+.pkg-card .pkg-cities { font-weight: 600; margin: 2px 0; }
+.btn-view { margin-top: 16px; font-size: 1rem; }
+.money-ok, .money-ok dd { color: #1b6e3c; }
+.money-over, .money-over dd { color: var(--error); }
+
+.over-budget .pkg-stats { max-width: 420px; }
+.over-budget .pkg-stats dd { font-size: 1.15rem; }
+.suggest-title { margin: 14px 0 6px; font-weight: 600; }
+.suggestions { display: flex; flex-wrap: wrap; gap: 8px; }
+.btn-suggest { margin: 0; text-align: left; }
+.suggest-text { padding: 10px 0; }
+.btn-warn { margin-top: 14px; background: #fff; color: var(--warn); border-color: #e09a1a; }
+.btn-warn:hover { background: #fff9ee; }
+
+.no-package { padding: 22px 22px 18px; border-left-width: 8px; }
+.no-package .banner-title { font-size: 1.35rem; }
+.no-package p { margin: 6px 0 0; color: var(--text); }
+.no-package .reasons { font-size: 1.05rem; font-weight: 600; }
+.no-package .reasons li + li { margin-top: 4px; }
+
+input.flash { animation: flash 1.6s ease-out; }
+@keyframes flash { 0%, 40% { border-color: var(--primary); box-shadow: 0 0 0 4px rgba(11, 107, 203, 0.35); } }
+
+/* ---------- package view ---------- */
+
+.package-view { padding-bottom: 96px; }
+.package-view > .card + .card { margin-top: 16px; }
+.pkg-header h2 { margin: 10px 0 2px; }
+.pkg-header p { margin: 0; }
+.pkg-badges { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.pkg-status-planned { background: #eef0f4; color: var(--muted); }
+.pkg-status-booked { background: #e9f7ef; color: #1b6e3c; }
+.btn-link { background: none; border: none; color: var(--primary); padding: 4px 0; min-height: 0; }
+.btn-link:hover { text-decoration: underline; }
+
+.timeline, .tl-list { list-style: none; margin: 0; padding: 0; }
+.tl-day + .tl-day { margin-top: 22px; }
+.tl-date { font-size: 1.02rem; margin: 0 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.tl-item { display: grid; grid-template-columns: 82px 1fr; gap: 12px; padding: 10px 0; }
+.tl-item + .tl-item { border-top: 1px dashed #e6e9ef; }
+.tl-time { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--primary-dark); font-size: 0.95rem; }
+.tl-item-check-in .tl-time, .tl-item-check-out .tl-time { color: var(--muted); font-size: 0.82rem; font-weight: 600; }
+.tl-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.tl-title { flex: 1 1 200px; }
+.tl-price { font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tl-detail { margin: 2px 0 0; font-size: 0.88rem; }
+.tl-warning { margin: 4px 0 0; font-size: 0.85rem; color: var(--warn); }
+.tl-type {
+  font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+  padding: 2px 8px; border-radius: 999px; background: #eef0f4; color: var(--muted);
+}
+.tl-flight { background: #e8f1fb; color: var(--primary-dark); }
+.tl-hotel { background: #f3ecfb; color: #5b3a8c; }
+.tl-transfer { background: #eef0f4; color: #3d4757; }
+.tl-attraction { background: #e9f7ef; color: #1b6e3c; }
+.tl-photo {
+  display: block; width: 100%; max-width: 360px; aspect-ratio: 16 / 9; object-fit: cover;
+  border-radius: 8px; margin-bottom: 8px; background: #eef0f4;
+}
+.credits { margin: 22px 0 0; font-size: 0.85rem; color: var(--muted); }
+.credits a { color: var(--primary); font-weight: 600; }
+
+/* ---------- sticky budget bar ---------- */
+
+.budget-bar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+  background: var(--card); border-top: 1px solid var(--border);
+  box-shadow: 0 -4px 16px rgba(20, 35, 60, 0.1);
+  padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px));
+}
+.budget-bar-inner { max-width: 820px; margin: 0 auto; display: flex; align-items: center; gap: 16px; }
+.bar-stats { display: flex; gap: 24px; margin: 0; flex: 1; flex-wrap: wrap; }
+.bar-stats dt { font-size: 0.75rem; color: var(--muted); }
+.bar-stats dd { margin: 0; font-weight: 700; font-size: 1.1rem; font-variant-numeric: tabular-nums; }
+#bar-left-box { padding: 0 10px; border-radius: 6px; }
+#bar-left-box.money-ok { background: #e9f7ef; }
+#bar-left-box.money-over { background: var(--error-bg); }
+#bar-left-box.money-ok dt { color: #1b6e3c; }
+#bar-left-box.money-over dt { color: var(--error); }
+.btn-export { width: auto; text-decoration: none; font-size: 0.95rem; }
+
 @media (max-width: 600px) {
   .grid.two { grid-template-columns: 1fr; }
+  .tl-item { grid-template-columns: 1fr; gap: 2px; }
+  .bar-stats { gap: 12px; }
+  .bar-stats dd { font-size: 0.98rem; }
+  .budget-bar-inner { gap: 10px; }
+  .btn-export { padding: 8px 12px; }
   .card { padding: 18px 16px; }
   .site-header { padding: 22px 16px 48px; }
   .site-header h1 { font-size: 1.6rem; }

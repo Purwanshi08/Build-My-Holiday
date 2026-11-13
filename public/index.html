@@ -1,4 +1,4 @@
-<!-- Build My Holiday: request form page (departure, country, dates, travelers, budget) and build result area. -->
+<!-- Build My Holiday: request form, build results (cards / over budget / no package) and the package timeline view. -->
 <!-- Plain HTML, no build step; behaviour lives in app.js and styling in styles.css. -->
 <!doctype html>
 <html lang="en">
@@ -85,7 +85,20 @@
     </form>
 
     <section id="result" class="result" aria-live="polite" hidden></section>
+
+    <section id="package-view" class="package-view" hidden></section>
   </main>
+
+  <footer id="budget-bar" class="budget-bar" hidden>
+    <div class="budget-bar-inner">
+      <dl class="bar-stats">
+        <div><dt>Total</dt><dd id="bar-total">—</dd></div>
+        <div><dt>Budget</dt><dd id="bar-budget">—</dd></div>
+        <div id="bar-left-box" aria-live="polite"><dt id="bar-left-label">Left</dt><dd id="bar-left">—</dd></div>
+      </dl>
+      <a id="export-btn" class="btn btn-primary btn-export" href="#">Export JSON</a>
+    </div>
+  </footer>
 
   <template id="child-row">
     <li class="child-row">
