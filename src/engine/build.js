@@ -9,6 +9,7 @@ import {
   flightPrice, hotelPrice, minRooms, transferPrice, transferQuantity,
 } from './pricing.js';
 import { validateRequest, windowReason } from './request.js';
+import { overBudgetSuggestions } from './suggest.js';
 import { cityPlans, flightPairs, outboundFlights, returnFlights } from './plans.js';
 import {
   arrivalPickup, departurePickup, intercityDeparture, planAttractions, GAP_MINUTES,
@@ -229,8 +230,12 @@ function assemble(c, plan, out, ret, stays, moves, visits) {
 
 // ---- search ----------------------------------------------------------------------------------------
 
-/** Every candidate package for a (valid, in-window) request, plus the reasons of the furthest failures. */
-export function searchCandidates(req, ctx) {
+/**
+ * Every candidate package for a (valid, in-window) request, plus the reasons of the furthest failures.
+ * `strategies` defaults to all three; ['cheap'] alone is enough to find the cheapest total (the other two only
+ * ever pick dearer-or-equal hotels and intercity legs for the same plan and flights).
+ */
+export function searchCandidates(req, ctx, strategies = STRATEGIES) {
   const c = makeContext(req, ctx);
   const plans = cityPlans(req.country, req.nights);
   const packages = [];
@@ -246,7 +251,7 @@ export function searchCandidates(req, ctx) {
       continue;
     }
     for (const pair of pairs) {
-      for (const strategy of STRATEGIES) {
+      for (const strategy of strategies) {
         const r = buildCandidate(c, plan, pair, strategy);
         if (r.pkg) packages.push(r.pkg);
         else fail(r.fail);
@@ -290,6 +295,22 @@ const result = (o) => ({
   status: 'OK', packages: [], cheapest_total: null, over_by: 0, suggestions: [], reasons: [], errors: {}, ...o,
 });
 
+const byTotal = (a, b) => a.total_inr - b.total_inr;
+const byTravel = (a, b) => a.metrics.travel_minutes - b.metrics.travel_minutes || a.total_inr - b.total_inr;
+const byStars = (a, b) => b.metrics.avg_stars - a.metrics.avg_stars || a.total_inr - b.total_inr;
+
+/** Lowest-total valid package for a valid, in-window request, or null. Used for over-budget suggestions. */
+export function cheapestTotal(req, ctx) {
+  const { packages } = searchCandidates(req, ctx, ['cheap']);
+  return pick(packages.sort(byTotal), [], ctx, new Map())?.total_inr ?? null;
+}
+
+/**
+ * Contract flow: (1) INVALID_REQUEST with per-field messages; (2) valid date outside the data window →
+ * NO_PACKAGE; (3) build every candidate, none valid → NO_PACKAGE with the specific reasons; (4) the true
+ * cheapest total; (5) within budget → OK with cheapest + fastest + best rated (both ≤ budget, twins dropped);
+ * (6) over budget → OVER_BUDGET with the cheapest package and up to 3 suggestions from re-running the builder.
+ */
 export function buildPackages(req, ctx) {
   const errors = validateRequest(req);
   if (Object.keys(errors).length) return result({ status: 'INVALID_REQUEST', errors });
@@ -298,46 +319,27 @@ export function buildPackages(req, ctx) {
 
   const { packages, reasons } = searchCandidates(req, ctx);
   const checked = new Map();
-  const byTotal = [...packages].sort((a, b) => a.total_inr - b.total_inr);
-  const cheapest = pick(byTotal, [], ctx, checked);
+  const ranked = [...packages].sort(byTotal);
+  const cheapest = pick(ranked, [], ctx, checked);
   if (!cheapest) {
     return result({
       status: 'NO_PACKAGE',
       reasons: reasons.length ? reasons : ['No candidate package passed the rule check.'],
     });
   }
+  const chosen = [{ ...cheapest, label: 'cheapest' }];
   if (cheapest.total_inr > req.budgetInr) {
     return result({
-      status: 'OVER_BUDGET', cheapest_total: cheapest.total_inr, over_by: cheapest.total_inr - req.budgetInr,
-      suggestions: overBudgetSuggestions(req, ctx, cheapest.total_inr),
+      status: 'OVER_BUDGET', packages: chosen,
+      cheapest_total: cheapest.total_inr, over_by: cheapest.total_inr - req.budgetInr,
+      suggestions: overBudgetSuggestions(req, ctx, cheapest.total_inr, cheapestTotal),
     });
   }
 
-  const inBudget = byTotal.filter((p) => p.total_inr <= req.budgetInr);
-  const chosen = [{ ...cheapest, label: 'cheapest' }];
-  const fastest = pick(
-    [...inBudget].sort((a, b) => a.metrics.travel_minutes - b.metrics.travel_minutes || a.total_inr - b.total_inr),
-    chosen, ctx, checked,
-  );
+  const inBudget = ranked.filter((p) => p.total_inr <= req.budgetInr);
+  const fastest = pick([...inBudget].sort(byTravel), chosen, ctx, checked);
   if (fastest) chosen.push({ ...fastest, label: 'fastest' });
-  const rated = pick(
-    [...inBudget].sort((a, b) => b.metrics.avg_stars - a.metrics.avg_stars || a.total_inr - b.total_inr),
-    chosen, ctx, checked,
-  );
+  const rated = pick([...inBudget].sort(byStars), chosen, ctx, checked);
   if (rated) chosen.push({ ...rated, label: 'best_rated' });
   return result({ packages: chosen, cheapest_total: cheapest.total_inr });
-}
-
-/** "Raise the budget" plus the longest shorter trip (same start) that fits the budget, if any. */
-function overBudgetSuggestions(req, ctx, cheapestTotal) {
-  const out = [`Raise the budget to at least ${inr(cheapestTotal)}.`];
-  for (let n = req.nights - 1; n >= destinations.rules.min_nights; n--) {
-    const totals = searchCandidates({ ...req, nights: n }, ctx).packages.map((p) => p.total_inr);
-    const min = totals.length ? Math.min(...totals) : null;
-    if (min !== null && min <= req.budgetInr) {
-      out.push(`Try ${n} nights (from ${inr(min)}).`);
-      break;
-    }
-  }
-  return out;
 }

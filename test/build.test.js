@@ -1,10 +1,12 @@
-// Tests for src/engine/build.js: the Menon request returns a package that passes every problem §4 rule
-// (re-checked here straight from the catalog), other statuses behave, and the package is printed day by day.
+// Tests for src/engine/build.js: Menon passes every problem §4 rule (re-checked here from the catalog) and is
+// printed day by day; all four statuses (INVALID_REQUEST, NO_PACKAGE, OK, OVER_BUDGET at ₹1,50,000) behave.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPackages } from '../src/engine/build.js';
+import { buildPackages, cheapestTotal } from '../src/engine/build.js';
+import { suggestVariations, describe } from '../src/engine/suggest.js';
+import { validatePackage } from '../src/engine/validate.js';
 import {
-  flightById, hotelById, roomById, transferById, attractionById, airportsServing, roomsLeft,
+  flightById, hotelById, roomById, transferById, attractionById, airportsServing, roomsLeft, availability,
 } from '../src/engine/catalog.js';
 import { addDays, addMinutes, inWindow, weekday } from '../src/engine/time.js';
 
@@ -179,13 +181,92 @@ test('ctx.booked rooms are respected', () => {
   assert.equal(usesSoldOutNight, false);
 });
 
-test('OVER_BUDGET with cheapest total and a suggestion; NO_PACKAGE with a reason', () => {
-  const over = buildPackages({ ...MENON, budgetInr: 100000 });
-  assert.equal(over.status, 'OVER_BUDGET');
-  assert.equal(over.over_by, over.cheapest_total - 100000);
-  assert.match(over.suggestions[0], /Raise the budget to at least ₹/);
+// ---- the four statuses ----
 
+test('INVALID_REQUEST: per-field messages, nothing built', () => {
+  const r = buildPackages({
+    departureAirport: 'XXX', country: 'France', startDate: '2027-02-30', nights: 2, adults: 0, childAges: [18],
+    budgetInr: 0,
+  });
+  assert.equal(r.status, 'INVALID_REQUEST');
+  assert.deepEqual(Object.keys(r.errors).sort(),
+    ['adults', 'budgetInr', 'childAges', 'country', 'departureAirport', 'nights', 'startDate']);
+  for (const msg of Object.values(r.errors)) assert.ok(typeof msg === 'string' && msg.length > 5);
+  assert.deepEqual(r.packages, []);
+  const { budgetInr, ...missing } = MENON;
+  assert.deepEqual(Object.keys(buildPackages(missing).errors), ['budgetInr']);
+});
+
+test('NO_PACKAGE: valid date outside the data window, with the window reason', () => {
+  for (const req of [{ ...MENON, startDate: '2027-04-18' }, { ...MENON, startDate: '2027-03-25' }]) {
+    const r = buildPackages(req);
+    assert.equal(r.status, 'NO_PACKAGE');
+    assert.match(r.reasons[0], /^Flights and rooms are only available from 1 to 20 April 2027/);
+    assert.deepEqual(r.errors, {});
+    assert.equal(r.cheapest_total, null);
+    assert.deepEqual(r.packages, []);
+  }
+});
+
+test('NO_PACKAGE: specific reasons (arrival seats, return flight, hotel rooms)', () => {
   const crowd = buildPackages({ ...MENON, adults: 10, childAges: [] }); // no flight has more than 9 seats
   assert.equal(crowd.status, 'NO_PACKAGE');
-  assert.match(crowd.reasons[0], /free seats/);
+  assert.ok(crowd.reasons.some((x) => /^No flight from BLR lands in Japan .* on 2027-04-10 with 10 free seats/.test(x)));
+
+  // MAA → Japan 1–7 April: no plan has both an arrival and a return flight.
+  const noReturn = buildPackages({ ...MENON, departureAirport: 'MAA', startDate: '2027-04-01', adults: 1, childAges: [] });
+  assert.equal(noReturn.status, 'NO_PACKAGE');
+  assert.ok(noReturn.reasons.some((x) => /^No return flight to MAA leaves Japan .* on 2027-04-07/.test(x)));
+
+  // Our own bookings take every room of every type on every night → no hotel.
+  const rooms = {};
+  for (const a of availability) rooms[`${a.room_id}|${a.date}`] = a.rooms_left;
+  const full = buildPackages(MENON, { booked: { flights: {}, rooms } });
+  assert.equal(full.status, 'NO_PACKAGE');
+  assert.ok(full.reasons.every((x) => /^No hotel room for 2 adult\(s\) \+ 1 child\(ren\) in /.test(x)));
+});
+
+test('OK: Menon within budget → cheapest + fastest/best rated, all ≤ budget, labels, metrics, left_inr', () => {
+  const r = buildPackages(MENON);
+  assert.equal(r.status, 'OK');
+  assert.equal(r.over_by, 0);
+  assert.equal(r.packages[0].label, 'cheapest');
+  assert.equal(r.cheapest_total, r.packages[0].total_inr);
+  const sigs = r.packages.map((p) => p.items.map((i) => `${i.catalog_id}|${i.start}`).join());
+  assert.equal(new Set(sigs).size, sigs.length, 'no identical packages');
+  for (const p of r.packages) {
+    assert.ok(['cheapest', 'fastest', 'best_rated'].includes(p.label));
+    assert.ok(p.total_inr <= MENON.budgetInr);
+    assert.equal(p.left_inr, MENON.budgetInr - p.total_inr);
+    assert.ok(Number.isInteger(p.metrics.travel_minutes) && typeof p.metrics.avg_stars === 'number');
+    assert.deepEqual(validatePackage(p), [], p.label);
+  }
+});
+
+test('OVER_BUDGET: Menon with budget 150000 → cheapest package, over_by, up to 3 checked suggestions', () => {
+  const req = { ...MENON, budgetInr: 150000 };
+  const r = buildPackages(req);
+  assert.equal(r.status, 'OVER_BUDGET');
+  assert.equal(r.packages.length, 1);
+  const [pkg] = r.packages;
+  assert.equal(pkg.label, 'cheapest');
+  assert.equal(r.cheapest_total, pkg.total_inr);
+  assert.equal(r.cheapest_total, buildPackages(MENON).cheapest_total, 'same true cheapest as with a big budget');
+  assert.equal(r.over_by, pkg.total_inr - 150000);
+  assert.ok(r.over_by > 0);
+  assert.equal(pkg.left_inr, 150000 - pkg.total_inr);
+  assert.ok(pkg.metrics.travel_minutes > 0 && pkg.metrics.avg_stars > 0);
+  assert.deepEqual(checkRules(pkg, req), []);
+  assert.deepEqual(validatePackage(pkg), []);
+
+  assert.ok(r.suggestions.length >= 1 && r.suggestions.length <= 3);
+  const found = suggestVariations(req, undefined, cheapestTotal);
+  assert.deepEqual(r.suggestions, found.map((v) => describe(v, req)));
+  for (const v of found) {
+    const again = buildPackages(v.request);
+    assert.equal(again.cheapest_total, v.total, `${v.kind} total re-checked`);
+    assert.equal(v.fits, v.total <= 150000);
+  }
+  console.log(`\nMenon at ₹1,50,000: cheapest ${inr(r.cheapest_total)}, over by ${inr(r.over_by)}\n  ` +
+    `${r.suggestions.join('\n  ')}\n`);
 });

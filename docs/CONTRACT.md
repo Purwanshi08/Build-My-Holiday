@@ -129,7 +129,7 @@ Empty object = valid. Keys are the request field names above. Messages are short
 | status | packages | other fields |
 |---|---|---|
 | `OK` | 1–3 packages within budget, distinct labels (`cheapest` first) | `cheapest_total` set, `over_by` 0 |
-| `OVER_BUDGET` | `[]` | `cheapest_total` = cheapest correct total, `over_by` = cheapest_total − budget, `suggestions[]` = human-readable changes (e.g. "Raise budget to ₹2,48,290", "Try 4 nights") |
+| `OVER_BUDGET` | `[cheapest]`: the cheapest correct package, label `cheapest`, `left_inr` negative | `cheapest_total` = that package's total, `over_by` = cheapest_total − budget, `suggestions[]` = up to 3 human-readable one-field changes found by re-running the builder (fewer nights, another start date, the other country, another departure city), e.g. "Try 3 nights instead of 6: from ₹2,03,532 (within your budget)."; "Raise the budget to at least ₹X." only when no variation can be built |
 | `NO_PACKAGE` | `[]` | `reasons[]` = why (e.g. "Flights and rooms are only available from 1 to 20 April 2027…", "No flight from BLR lands in Japan on 2027-04-12"), `cheapest_total` null |
 | `INVALID_REQUEST` | `[]` | `errors` = output of `validateRequest` (malformed / out-of-range fields only) |
 
