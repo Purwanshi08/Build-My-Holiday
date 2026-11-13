@@ -40,3 +40,23 @@
   flight, no rooms) are not fixed by changing the date alone. Child ages and budget must be whole numbers
   (contract types are integers). Form starts with sample values (10 Apr, 6 nights, 2 adults,
   ₹3,50,000), no children and both dropdowns unselected.
+- **2026-11-13 — Our export example lives in `docs/trip_format_example.json`, not `data/`.**
+  `data/trip_format_example.json` is the judges' original (CLAUDE.md rule 2: never modify `data/`). Ours is the
+  booked Menon package as `exportTrip` writes it: `country` set, hotel items with `room_id`, `sources: []`,
+  `status: "BOOKED"` and `booking.reference` as a 10-digit string. It passes `validatePackage`.
+- **2026-11-13 — `index.js` now re-exports `validatePackage`/`exportTrip` from `validate.js`/`export.js`.**
+  This is the one-line switch the contract (§0) planned for once Person B's files exist; nothing else in
+  Person A's `index.js` changed.
+- **2026-11-13 — `validatePackage` reads only `items`, `traveler`, `start_date`, `end_date`, `country`,
+  `total_inr`, `status` and the catalog** (never `plan`/`metrics`), so it checks an exported JSON file the same way
+  as a live package. Flight times come from the catalog. Item times must match the catalog. Each rule is its own
+  named check in `CHECKS`. A check that throws becomes a violation, so `validatePackage` never throws.
+- **2026-11-13 — Validation details.** Airport transfers: there must be exactly 2. Sorted by pickup, the first is
+  the arrival transfer and the second the return transfer. "Reached the city" means the arrival transfer's pickup
+  + duration on the arrival day (landing + 60 if there is no transfer), and the between-cities transfer's pickup +
+  duration on a city-change day. City-change day = check-in date of every stay after the first. Optional city
+  taxis must be in a city of that day and inside their service hours. Prices: each item must be within 1% of the
+  catalog formula. `total_inr` must equal the sum of item prices exactly and be within 1% of the catalog total.
+- **2026-11-13 — The "1–2 attractions on every full day" rule is checked on every package, not only the first.**
+  The judges' tool cannot tell a first package from an edited one. So removing a day's last attraction, or adding
+  a third, is refused (M6 allows "refuses the change with a reason").

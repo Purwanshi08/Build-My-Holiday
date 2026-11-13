@@ -1,0 +1,326 @@
+{
+  "trip_id": "pkg-menon-example",
+  "traveler": {
+    "name": "Menon family",
+    "home_airport": "BLR",
+    "adults": 2,
+    "children": 1,
+    "child_ages": [
+      6
+    ]
+  },
+  "start_date": "2027-04-10",
+  "end_date": "2027-04-16",
+  "country": "Japan",
+  "budget_inr": 350000,
+  "total_inr": 248290,
+  "status": "BOOKED",
+  "items": [
+    {
+      "item_id": "i1",
+      "type": "flight",
+      "name": "AV 520 BLR to NRT",
+      "city": "Tokyo",
+      "status": "BOOKED",
+      "catalog_id": "FL-401",
+      "room_id": null,
+      "start": "2027-04-09T23:50",
+      "end": "2027-04-10T10:30",
+      "quantity": 3,
+      "price_inr": 75600,
+      "booking": {
+        "reference": "4821930576"
+      },
+      "sources": [],
+      "warnings": []
+    },
+    {
+      "item_id": "i2",
+      "type": "transfer",
+      "name": "Narita limousine bus to Ueno",
+      "city": "Tokyo",
+      "status": "BOOKED",
+      "catalog_id": "TR-NRT-UEN-BUS",
+      "room_id": null,
+      "start": "2027-04-10T11:30",
+      "end": "2027-04-10T13:00",
+      "quantity": 3,
+      "price_inr": 4480,
+      "booking": {
+        "reference": "4821930576"
+      },
+      "sources": [],
+      "warnings": []
+    },
+    {
+      "item_id": "i3",
+      "type": "hotel",
+      "name": "Ueno Garden Inn",
+      "city": "Tokyo",
+      "status": "BOOKED",
+      "catalog_id": "HTL-TYO-004",
+      "room_id": "RM-TYO-004-B",
+      "start": "2027-04-10",
+      "end": "2027-04-13",
+      "quantity": 1,
+      "price_inr": 28392,
+      "booking": {
+        "reference": "4821930576"
+      },
+      "sources": [],
+      "warnings": []
+    },
+    {
+      "item_id": "i4",
+      "type": "attraction",
+      "name": "Ueno Park",
+      "city": "Tokyo",
+      "status": "BOOKED",
+      "catalog_id": "ATT-TYO-008",
+      "room_id": null,
+      "start": "2027-04-10T15:00",
+      "end": "2027-04-10T16:30",
+      "quantity": 3,
+      "price_inr": 0,
+      "booking": {
+        "reference": "4821930576"
+      },
+      "sources": [],
+      "warnings": []
+    },
+    {
+      "item_id": "i5",
+      "type": "attraction",
+      "name": "Senso-ji",
+      "city": "Tokyo",
+      "status": "BOOKED",
+      "catalog_id": "ATT-TYO-004",
+      "room_id": null,
+      "start": "2027-04-11T09:00",
+      "end": "2027-04-11T10:00",
+      "quantity": 3,
+      "price_inr": 0,
+      "booking": {
+        "reference": "4821930576"
+      },
+      "sources": [],
+      "warnings": []
+    },
+    {
+      "item_id": "i6",
+      "type": "attraction",
+      "name": "Tokyo Skytree",
+      "city": "Tokyo",
+      "status": "BOOKED",
+      "catalog_id": "ATT-TYO-007",
+      "room_id": null,
+      "start": "2027-04-11T11:00",
+      "end": "2027-04-11T12:30",
+      "quantity": 3,
+      "price_inr": 2884,
+      "booking": {
+        "reference": "4821930576"
+      },
+      "sources": [],
+      "warnings": []
+    },
+    {
+      "item_id": "i7",
+      "type": "attraction",
+      "name": "teamLab Planets TOKYO",
+      "city": "Tokyo",
+      "status": "BOOKED",
+      "catalog_id": "ATT-TYO-001",
+      "room_id": null,
+      "start": "2027-04-12T10:00",
+      "end": "2027-04-12T12:00",
+      "quantity": 3,
+      "price_inr": 5096,
+      "booking": {
+        "reference": "4821930576"
+      },
+      "sources": [],
+      "warnings": []
+    },
+    {
+      "item_id": "i8",
+      "type": "attraction",
+      "name": "Meiji Jingu",
+      "city": "Tokyo",
+      "status": "BOOKED",
+      "catalog_id": "ATT-TYO-010",
+      "room_id": null,
+      "start": "2027-04-12T14:00",
+      "end": "2027-04-12T15:00",
+      "quantity": 3,
+      "price_inr": 0,
+      "booking": {
+        "reference": "4821930576"
+      },
+      "sources": [],
+      "warnings": []
+    },
+    {
+      "item_id": "i9",
+      "type": "transfer",
+      "name": "Shinkansen Tokyo to Kyoto",
+      "city": "Kyoto",
+      "status": "BOOKED",
+      "catalog_id": "TR-TYO-KYO-01",
+      "room_id": null,
+      "start": "2027-04-13T10:00",
+      "end": "2027-04-13T12:15",
+      "quantity": 3,
+      "price_inr": 19838,
+      "booking": {
+        "reference": "4821930576"
+      },
+      "sources": [],
+      "warnings": []
+    },
+    {
+      "item_id": "i10",
+      "type": "hotel",
+      "name": "Sakura Garden Hotel",
+      "city": "Kyoto",
+      "status": "BOOKED",
+      "catalog_id": "HTL-KYO-004",
+      "room_id": "RM-KYO-004-B",
+      "start": "2027-04-13",
+      "end": "2027-04-16",
+      "quantity": 1,
+      "price_inr": 24360,
+      "booking": {
+        "reference": "4821930576"
+      },
+      "sources": [],
+      "warnings": []
+    },
+    {
+      "item_id": "i11",
+      "type": "attraction",
+      "name": "Sanjusangen-do",
+      "city": "Kyoto",
+      "status": "BOOKED",
+      "catalog_id": "ATT-KYO-010",
+      "room_id": null,
+      "start": "2027-04-13T15:00",
+      "end": "2027-04-13T15:45",
+      "quantity": 3,
+      "price_inr": 840,
+      "booking": {
+        "reference": "4821930576"
+      },
+      "sources": [],
+      "warnings": []
+    },
+    {
+      "item_id": "i12",
+      "type": "attraction",
+      "name": "Kiyomizu-dera",
+      "city": "Kyoto",
+      "status": "BOOKED",
+      "catalog_id": "ATT-KYO-001",
+      "room_id": null,
+      "start": "2027-04-14T09:00",
+      "end": "2027-04-14T10:30",
+      "quantity": 3,
+      "price_inr": 672,
+      "booking": {
+        "reference": "4821930576"
+      },
+      "sources": [],
+      "warnings": []
+    },
+    {
+      "item_id": "i13",
+      "type": "attraction",
+      "name": "Fushimi Inari Taisha",
+      "city": "Kyoto",
+      "status": "BOOKED",
+      "catalog_id": "ATT-KYO-002",
+      "room_id": null,
+      "start": "2027-04-14T12:00",
+      "end": "2027-04-14T14:00",
+      "quantity": 3,
+      "price_inr": 0,
+      "booking": {
+        "reference": "4821930576"
+      },
+      "sources": [],
+      "warnings": []
+    },
+    {
+      "item_id": "i14",
+      "type": "attraction",
+      "name": "Kinkaku-ji",
+      "city": "Kyoto",
+      "status": "BOOKED",
+      "catalog_id": "ATT-KYO-003",
+      "room_id": null,
+      "start": "2027-04-15T10:00",
+      "end": "2027-04-15T11:00",
+      "quantity": 3,
+      "price_inr": 728,
+      "booking": {
+        "reference": "4821930576"
+      },
+      "sources": [],
+      "warnings": []
+    },
+    {
+      "item_id": "i15",
+      "type": "attraction",
+      "name": "Kyoto Aquarium",
+      "city": "Kyoto",
+      "status": "BOOKED",
+      "catalog_id": "ATT-KYO-011",
+      "room_id": null,
+      "start": "2027-04-15T13:00",
+      "end": "2027-04-15T15:00",
+      "quantity": 3,
+      "price_inr": 3360,
+      "booking": {
+        "reference": "4821930576"
+      },
+      "sources": [],
+      "warnings": []
+    },
+    {
+      "item_id": "i16",
+      "type": "transfer",
+      "name": "Kansai limousine bus to Kyoto",
+      "city": "Kyoto",
+      "status": "BOOKED",
+      "catalog_id": "TR-KIX-KYO-BUS",
+      "room_id": null,
+      "start": "2027-04-16T07:00",
+      "end": "2027-04-16T08:40",
+      "quantity": 3,
+      "price_inr": 3920,
+      "booking": {
+        "reference": "4821930576"
+      },
+      "sources": [],
+      "warnings": []
+    },
+    {
+      "item_id": "i17",
+      "type": "flight",
+      "name": "AV 515 KIX to BLR",
+      "city": "Bengaluru",
+      "status": "BOOKED",
+      "catalog_id": "FL-411",
+      "room_id": null,
+      "start": "2027-04-16T12:00",
+      "end": "2027-04-16T18:00",
+      "quantity": 3,
+      "price_inr": 78120,
+      "booking": {
+        "reference": "4821930576"
+      },
+      "sources": [],
+      "warnings": []
+    }
+  ]
+}
