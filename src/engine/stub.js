@@ -1,23 +1,9 @@
 // Stub engine: hardcoded but catalog-accurate responses for every contract function (docs/CONTRACT.md),
 // so the server and UI can be built before the real engine exists. Uses real catalog IDs and prices.
-import { readFileSync } from 'node:fs';
+import { destinations } from './catalog.js';
+import { validateRequest, windowReason } from './request.js';
 
-const destinations = JSON.parse(
-  readFileSync(new URL('../../data/catalog/destinations.json', import.meta.url), 'utf8'),
-);
-
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
-// Date-only arithmetic via the UTC trick allowed by CLAUDE.md rule 4.
-function addDays(date, n) {
-  const d = new Date(date + 'T00:00:00Z');
-  d.setUTCDate(d.getUTCDate() + n);
-  return d.toISOString().slice(0, 10);
-}
-
-function isRealDate(s) {
-  return typeof s === 'string' && DATE_RE.test(s) && addDays(s, 0) === s;
-}
+export { validateRequest };
 
 const clone = (x) => structuredClone(x);
 const sum = (items) => items.reduce((t, i) => t + i.price_inr, 0);
@@ -34,29 +20,6 @@ export function getMeta() {
   };
 }
 
-export function validateRequest(req) {
-  const errors = {};
-  const r = req || {};
-  const { rules } = destinations;
-  if (!destinations.departure_cities.some((d) => d.airport === r.departureAirport)) {
-    errors.departureAirport = 'Choose a departure city from the list.';
-  }
-  if (!destinations.countries.some((c) => c.name === r.country)) {
-    errors.country = 'Choose a destination country from the list.';
-  }
-  if (!isRealDate(r.startDate)) errors.startDate = 'Enter a real date as YYYY-MM-DD.';
-  if (!Number.isInteger(r.nights) || r.nights < rules.min_nights || r.nights > rules.max_nights) {
-    errors.nights = `Nights must be a whole number from ${rules.min_nights} to ${rules.max_nights}.`;
-  }
-  if (!Number.isInteger(r.adults) || r.adults < 1) errors.adults = 'At least 1 adult is required.';
-  if (!Array.isArray(r.childAges) || !r.childAges.every((a) => Number.isInteger(a) && a >= 0 && a <= 17)) {
-    errors.childAges = 'Each child age must be a whole number from 0 to 17.';
-  }
-  if (!Number.isInteger(r.budgetInr) || r.budgetInr < 1) {
-    errors.budgetInr = 'Budget must be a whole number of rupees above 0.';
-  }
-  return errors;
-}
 
 // --- The Menon package (BLR -> Japan, 2027-04-10, 6 nights, 2 adults + child 6, budget 3,50,000) ---
 // Prices: flights price_per_seat x 3; hotels price_per_night x rooms x nights;
@@ -137,18 +100,8 @@ export function buildPackages(req, _ctx) {
   if (Object.keys(errors).length) return result({ status: 'INVALID_REQUEST', errors });
 
   // Data window: start, last night and return day must all lie in 2027-04-01..2027-04-20 -> else NO_PACKAGE.
-  const { first_night, last_departure } = destinations.rules.data_window;
-  const lastNight = addDays(req.startDate, req.nights - 1);
-  const end = addDays(req.startDate, req.nights);
-  if (req.startDate < first_night || req.startDate > last_departure || lastNight >= last_departure || end > last_departure) {
-    return result({
-      status: 'NO_PACKAGE',
-      reasons: [
-        `Flights and rooms are only available from 1 to 20 April 2027. This trip runs ${req.startDate} to ${end}; ` +
-          'choose a start date and nights so the return is on or before 20 April 2027.',
-      ],
-    });
-  }
+  const outside = windowReason(req);
+  if (outside) return result({ status: 'NO_PACKAGE', reasons: [outside] });
   if (req.country !== 'Japan') {
     return result({ status: 'NO_PACKAGE', reasons: [`Stub engine only knows a Japan package (asked: ${req.country}).`] });
   }

@@ -27,16 +27,35 @@
 - **2026-11-13 — Stub status triggers** (until the real engine lands): invalid fields → `INVALID_REQUEST`;
   dates outside the window or country ≠ Japan → `NO_PACKAGE`; budget below the stub's Menon total (₹2,48,290)
   → `OVER_BUDGET`; otherwise `OK` with the Menon package (labelled cheapest / fastest / best_rated copies).
-- **2026-11-13 — Server/db shape.** `app.db` in the repo root (override with `$DB_PATH`, used for tests), tables
-  created on start. `booked_flights` keyed by `flight_id`, `booked_rooms` by `(room_id, date)`; confirming adds to
-  the counts. Built packages are upserted by `id` (the stub reuses ids). Engine results are always HTTP 200
-  (including `INVALID_REQUEST`, `OVER_BUDGET`, refused changes with `ok:false`); HTTP errors only for unknown ids
-  (404 `{"error":"not found"}`), malformed bodies / missing `kind` (400) and the unimplemented confirm (501).
-  Changes to a `BOOKED` package are refused with `ok:false`. `GET /api/reservations/:ref` returns
-  `{ reference, package_id, created_at, package }`.
-- **2026-11-13 — Request form (public/).** Plain HTML/JS/CSS, no build step. The client never blocks dates outside
-  1–20 April; on `NO_PACKAGE` it shows the reasons in a red banner and marks the date field only when a reason
-  starts with "Flights and rooms are only available" (the contract's window prefix), since other reasons (no
-  flight, no rooms) are not fixed by changing the date alone. Child ages and budget must be whole numbers
-  (contract types are integers). Form starts with sample values (10 Apr, 6 nights, 2 adults,
-  ₹3,50,000), no children and both dropdowns unselected.
+- **2026-11-13 — Catalog indexes (A1).** Flights are indexed by local _arrival_ date (outbound: lands on the start
+  date) and by local _departure_ date (return: leaves on the last day). `airportTransfers` always adds the
+  `area: null` (all areas) records. A missing availability record counts as 0 rooms left. Intercity transfers come
+  from `destinations.json` links, the dictionary's official list. Catalog records are deep-frozen, so engine code
+  must copy before changing anything.
+- **2026-11-13 — `validateRequest` and the window check moved to `src/engine/request.js`.** The stub and the
+  real engine now share one copy.
+- **2026-11-13 — Real `buildPackages` (`src/engine/build.js`) replaces the stub.** It tries every legal city plan ×
+  every flight pair × 3 strategies, choosing layer by layer: _cheap_ (cheapest hotel + attached airport transfer, cheapest
+  intercity), _quick_ (cheap hotels, shortest intercity), _rated_ (highest-star hotel per city). Labels:
+  `cheapest` = lowest total; `fastest` = least travel minutes, ties broken by total; `best_rated` = highest
+  average stars, ties broken by total. If a label's best package is the same trip as one already chosen, that label
+  is left out, so we return 1–3 packages and never a pricier twin. Why: a full product of hotels and transfers is
+  too large; per-layer choice is fast (≤ ~0.3 s per request) and every result is re-checked against all the rules.
+- **2026-11-13 — Airport transfer timing.** Arrival: the first minute ≥ landing + 60 inside the service window,
+  waiting at most 180 min. Departure: the latest minute with pickup + duration ≤ departure − 180, inside the window,
+  looking back at most 180 min. Why: this keeps the pickup close to the flight and avoids planning a night at the
+  airport just to use a cheaper bus. The minute scan handles past-midnight windows; we never write "24:00" (23:59 is
+  the latest pickup).
+- **2026-11-13 — Intercity departure** = the first slot at or after 10:00 on the `service_from + n × frequency`
+  grid (any minute when there is no frequency); if none, the first slot of the day. Why: after breakfast and
+  check-out, leaving the afternoon for the new city.
+- **2026-11-13 — Attraction schedule.** Visits run 09:00–22:00, start ≥ 30 min after reaching a city, and keep
+  30 min between visits. Every full day first gets one required visit (the cheapest that fits). Then free extras
+  are added: a 2nd visit on full days, at most 1 on arrival and change days. Required visits are placed before
+  extras so an extra never uses up the only attraction a later full day could have. Nara is excluded explicitly.
+- **2026-11-13 — Package ids are random** (`pkg-<uuid>`). Rebuilding the same request never overwrites a saved or
+  booked package in the db.
+- **2026-11-13 — `validatePackage` hook.** `build.js` loads `./validate.js` with a dynamic import. While the file
+  is missing, candidates are trusted as built (marked TODO). Once Person B's file is pulled, every chosen package
+  must pass it (checked in rank order, so a failing one is skipped). Any other error inside `validate.js` is
+  re-thrown, not hidden.

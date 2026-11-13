@@ -1,9 +1,9 @@
 // Public entry point of the engine: the only module the server imports (see docs/CONTRACT.md).
-// Delegates to the stub for now; validatePackage/exportTrip switch to Person B's ./validate.js and ./export.js.
+// buildPackages and validateRequest are real; the rest still come from the stub until they are built.
+export { buildPackages } from './build.js';
+export { validateRequest } from './request.js';
 export {
   getMeta,
-  validateRequest,
-  buildPackages,
   validatePackage,
   getOptions,
   applyChange,
