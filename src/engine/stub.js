@@ -136,12 +136,17 @@ export function buildPackages(req, _ctx) {
   const errors = validateRequest(req);
   if (Object.keys(errors).length) return result({ status: 'INVALID_REQUEST', errors });
 
+  // Data window: start, last night and return day must all lie in 2027-04-01..2027-04-20 -> else NO_PACKAGE.
   const { first_night, last_departure } = destinations.rules.data_window;
+  const lastNight = addDays(req.startDate, req.nights - 1);
   const end = addDays(req.startDate, req.nights);
-  if (req.startDate < first_night || end > last_departure) {
+  if (req.startDate < first_night || req.startDate > last_departure || lastNight >= last_departure || end > last_departure) {
     return result({
       status: 'NO_PACKAGE',
-      reasons: [`Flights and rooms exist only from ${first_night} to ${last_departure}; this trip runs ${req.startDate} to ${end}.`],
+      reasons: [
+        `Flights and rooms are only available from 1 to 20 April 2027. This trip runs ${req.startDate} to ${end}; ` +
+          'choose a start date and nights so the return is on or before 20 April 2027.',
+      ],
     });
   }
   if (req.country !== 'Japan') {

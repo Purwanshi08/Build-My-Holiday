@@ -7,6 +7,16 @@ All engine functions are **synchronous, pure** (no I/O except reading `data/cata
 from `src/engine/index.js`. The server never reads `data/catalog` for business logic; it asks the engine.
 Money is integer INR. Dates are `YYYY-MM-DD`, date-times are local `YYYY-MM-DDTHH:MM` (no seconds, no offset).
 
+## 0. Ownership
+
+| Person | Owns |
+|---|---|
+| A | `src/engine/` except `validate.js` and `export.js`; `test/` except `test/validate.test.js` |
+| B | `src/engine/validate.js` (`validatePackage`), `src/engine/export.js` (`exportTrip`), `test/validate.test.js`, `src/server.js`, `src/db.js`, `public/`, root `README.md` |
+
+`src/engine/index.js` (Person A) re-exports `validatePackage` from `./validate.js` and `exportTrip` from `./export.js`
+once Person B creates them; until then it takes them from the stub. Signatures below are the same either way.
+
 ## 1. Request
 
 ```json
@@ -21,18 +31,24 @@ Money is integer INR. Dates are `YYYY-MM-DD`, date-times are local `YYYY-MM-DDTH
 }
 ```
 
+All fields are required (a missing field is an error).
+
 | Field | Type | Valid when |
 |---|---|---|
 | `departureAirport` | string | One of `destinations.json → departure_cities[].airport` |
 | `country` | string | One of `destinations.json → countries[].name` |
-| `startDate` | string | Real calendar date `YYYY-MM-DD` (holiday start = arrival day) |
+| `startDate` | string | Parseable, real calendar date `YYYY-MM-DD` (holiday start = arrival day) |
 | `nights` | integer | `rules.min_nights` ≤ n ≤ `rules.max_nights` (3–10) |
 | `adults` | integer | ≥ 1 |
 | `childAges` | integer[] | Each 0–17; may be empty |
 | `budgetInr` | integer | ≥ 1 |
 
-A date outside the data window (first night before 2027-04-01 or return after 2027-04-20) is **valid input** but
-gives `NO_PACKAGE` with a reason (DATA_DICTIONARY FAQ: "say so").
+**`INVALID_REQUEST` is only for malformed or out-of-range field values** (the table above).
+
+**Data window → `NO_PACKAGE`, never `INVALID_REQUEST`.** A valid date where the start date is outside
+2027-04-01..2027-04-20, or the last night (`startDate + nights − 1`) is after 2027-04-19, or the return day
+(`startDate + nights`) is after 2027-04-20, gives `NO_PACKAGE` with a reason starting
+"Flights and rooms are only available from 1 to 20 April 2027".
 
 ## 2. Package
 
@@ -114,8 +130,8 @@ Empty object = valid. Keys are the request field names above. Messages are short
 |---|---|---|
 | `OK` | 1–3 packages within budget, distinct labels (`cheapest` first) | `cheapest_total` set, `over_by` 0 |
 | `OVER_BUDGET` | `[]` | `cheapest_total` = cheapest correct total, `over_by` = cheapest_total − budget, `suggestions[]` = human-readable changes (e.g. "Raise budget to ₹2,48,290", "Try 4 nights") |
-| `NO_PACKAGE` | `[]` | `reasons[]` = why (e.g. "No flight from BLR lands in Japan on 2027-04-21") , `cheapest_total` null |
-| `INVALID_REQUEST` | `[]` | `errors` = output of `validateRequest` |
+| `NO_PACKAGE` | `[]` | `reasons[]` = why (e.g. "Flights and rooms are only available from 1 to 20 April 2027…", "No flight from BLR lands in Japan on 2027-04-12"), `cheapest_total` null |
+| `INVALID_REQUEST` | `[]` | `errors` = output of `validateRequest` (malformed / out-of-range fields only) |
 
 ### `validatePackage(pkg, ctx) -> string[]`
 Re-checks every rule of problem §4 (and totals). Empty array = correct.
