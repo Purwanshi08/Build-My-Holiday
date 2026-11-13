@@ -161,3 +161,19 @@
   its label. Every valid option's `detail` now also has `avg_stars` and `travel_minutes` of the resulting
   package. Note: the same average after a city change can be correct. The cheapest hotels in Tokyo (Ueno Garden
   Inn) and Osaka (Tennoji Park Hotel) are both 3★, so Tokyo/Osaka plans of the cheapest Menon package stay at 3★.
+- **2026-11-13 — A city change keeps the traveler's hotels and reports the stars.** `set_city_plan` rebuilds as
+  before. Then every city that stays in the plan gets its current hotel and room type back, when it still fits
+  and has rooms on the new nights. Airport transfers and visit times are refitted for it; if that fails, the
+  rebuilt hotels stay. Only new cities get a hotel by the package's rule. Every city change now reports the stars:
+  "Average hotel stars 3.00 → 3.50.", or when unchanged "stay at 2.00: Barsha Budget Stay in Dubai (2★), …".
+  Why: the rebuild applies one rule in every city, which lands on the same star class almost everywhere
+  (cheapest UAE hotels are 2★ in both cities; every Japan city has a 5★). So the average looked frozen, and a
+  hotel the traveler had chosen was silently replaced.
+- **2026-11-13 — Fuzz test `test/fuzz.test.js` (300 seeded random requests).** It covers all four departure
+  cities, both countries, 1–4 adults, 0–3 children aged 0–17 and log-uniform budgets from ₹20k to ₹30L. About 10%
+  of requests use nights just outside 3–10, and about 20% use start dates from 29 Mar to 23 Apr. The other 80% fit
+  inside 1–20 April. For each request: `buildPackages` must not throw, every package and its `exportTrip` output
+  must pass `validatePackage`, the status must fit the budget (CONTRACT §4), and a NO_PACKAGE that blames flights
+  is re-checked against flights.json. The PRNG is seeded (`FUZZ_SEED` env var, default 20270401) so failures can be
+  replayed. Why: the hand-written tests cover a few requests; this one covers the request space. Without the bias,
+  ~60% of random trips ran past 20 April and only tested the window check.

@@ -124,6 +124,67 @@ function freeSlot(a, day, dayVisits) {
   return null;
 }
 
+/**
+ * First night from checkIn (for `nights` nights) on which fewer than k rooms of `room` are free after our own
+ * bookings: { date, free }, or null when every night has enough.
+ */
+function roomShortage(c, room, checkIn, nights, k) {
+  for (let n = 0; n < nights; n++) {
+    const date = addDays(checkIn, n);
+    const free = roomsLeft(room.room_id, date) - (c.ctx?.booked?.rooms?.[`${room.room_id}|${date}`] ?? 0);
+    if (free < k) return { date, free: Math.max(free, 0) };
+  }
+  return null;
+}
+
+/**
+ * After a city-plan rebuild: put back the traveler's current hotel (same room type) in every city that stays in
+ * the plan, when it still fits and has rooms on the new nights. Airport transfers and visit times are refitted
+ * for the kept hotels. Returns { pkg, notes }; if anything does not fit, the rebuilt package is returned as is.
+ */
+function keepHotels(built, oldStays, ctx) {
+  const parts = decompose(built, ctx);
+  const notes = [];
+  let kept = 0;
+  for (const [i, s] of parts.stays.entries()) {
+    const old = oldStays.find((o) => o.city === s.city);
+    if (!old) continue;
+    if (old.hotel.hotel_id === s.hotel.hotel_id && old.room.room_id === s.room.room_id) {
+      notes.push(`Kept ${old.hotel.name} in ${s.city}.`);
+      continue;
+    }
+    const k = minRooms(old.room, parts.c.adults, parts.c.children);
+    const short = k === null ? null : roomShortage(parts.c, old.room, s.checkIn, s.nights, k);
+    if (k === null || short) {
+      notes.push(`Couldn't keep ${old.hotel.name} in ${s.city}: no ${old.room.name} free on ${short?.date ?? s.checkIn}; ` +
+        `chose ${s.hotel.name}.`);
+      continue;
+    }
+    parts.stays[i] = { ...s, hotel: old.hotel, room: old.room, k, price: hotelPrice(old.room, k, s.nights) };
+    notes.push(`Kept ${old.hotel.name} in ${s.city}.`);
+    kept++;
+  }
+  if (kept === 0) return { pkg: built, notes };
+  const scratch = [];
+  if (refitAirport(parts, 'arrive', scratch) || refitAirport(parts, 'depart', scratch) || refitVisits(parts, scratch)) {
+    return { pkg: built, notes: notes.filter((n) => !n.startsWith('Kept ')) }; // could not keep them after all
+  }
+  return { pkg: recompose(built, parts), notes };
+}
+
+/** "Average hotel stars 3.00 → 3.50." or, when unchanged, why: each city's hotel and its stars. */
+function starsNote(before, after) {
+  const fmt = (n) => n.toFixed(2);
+  const a = before.metrics.avg_stars;
+  const b = after.metrics.avg_stars;
+  if (a !== b) return `Average hotel stars ${fmt(a)} → ${fmt(b)}.`;
+  const hotels = after.plan.map((p) => {
+    const h = hotelById.get(p.hotel_id);
+    return `${h.name} in ${p.city} (${h.stars}★)`;
+  });
+  return `Average hotel stars stay at ${fmt(b)}: ${hotels.join(', ')}.`;
+}
+
 /** How set_city_plan rebuilds each kind of package (by its label), and which rebuilt package wins. */
 const REBUILD = {
   cheapest: { strategy: 'cheap', how: 'the cheapest hotels', better: (a, b) => a.total_inr < b.total_inr },
@@ -155,12 +216,9 @@ const HANDLERS = {
     if (k === null) {
       return { refuse: [`${room.name} at ${hotel.name} cannot fit ${who(c)} (every room needs an adult).`] };
     }
-    for (let n = 0; n < s.nights; n++) {
-      const d = addDays(s.checkIn, n);
-      const free = roomsLeft(room.room_id, d) - (c.ctx?.booked?.rooms?.[`${room.room_id}|${d}`] ?? 0);
-      if (free < k) {
-        return { refuse: [`${hotel.name} — ${room.name}: ${Math.max(free, 0)} room(s) left on ${d}, ${k} needed.`] };
-      }
+    const short = roomShortage(c, room, s.checkIn, s.nights, k);
+    if (short) {
+      return { refuse: [`${hotel.name} — ${room.name}: ${short.free} room(s) left on ${short.date}, ${k} needed.`] };
     }
     parts.stays[i] = { ...s, hotel, room, k, price: hotelPrice(room, k, s.nights) };
     return { touched: ['airport', 'visits'] };
@@ -271,9 +329,15 @@ const HANDLERS = {
       }
       return built;
     };
-    const built = (same && strategy !== 'quick' ? bestOf([same]) : null) ?? bestOf(pairs);
-    if (!built) return { refuse: [...failures] };
-    const warnings = [`Rebuilt for ${planText(plan)} with ${how}: hotels, transfers and attractions were chosen again.`];
+    const rebuilt = (same && strategy !== 'quick' ? bestOf([same]) : null) ?? bestOf(pairs);
+    if (!rebuilt) return { refuse: [...failures] };
+    // Cities that stay keep the traveler's hotel; only new cities get one picked by the package's rule.
+    const { pkg: built, notes } = keepHotels(rebuilt, parts.stays, c.ctx);
+    const warnings = [
+      `Rebuilt for ${planText(plan)} (new cities get ${how}): transfers and attractions were chosen again.`,
+      ...notes,
+      starsNote(pkg, built),
+    ];
     const flights = built.items.filter((i) => i.type === 'flight').map((i) => i.catalog_id);
     if (flights[0] !== parts.out.flight_id) warnings.push(`Arrival flight changed to ${flights[0]} to serve ${plan[0].city}.`);
     if (flights[1] !== parts.ret.flight_id) warnings.push(`Return flight changed to ${flights[1]} to serve ${plan.at(-1).city}.`);

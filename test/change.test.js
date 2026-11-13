@@ -230,7 +230,46 @@ test('set_city_plan keeps a best-rated package best rated (highest-star hotels i
     assert.equal(hotelById.get(p.hotel_id).stars, top, p.city);
   }
   assert.equal(r.package.metrics.avg_stars, starsByHand(r.package));
-  assert.ok(r.warnings.some((w) => /with the highest-star hotels/.test(w)));
+  assert.ok(r.warnings.some((w) => /new cities get the highest-star hotels/.test(w)));
+});
+
+const starsLine = (r) => r.warnings.find((w) => w.startsWith('Average hotel stars'));
+
+test('set_city_plan keeps the traveler\'s hotel in a city that stays, and reports the new average', () => {
+  const asakusa = applyChange(base(), { type: 'swap_hotel', city: 'Tokyo', hotel_id: 'HTL-TYO-003', room_id: 'RM-TYO-003-C' }).package;
+  const snap = JSON.stringify(asakusa);
+  const r = applyChange(asakusa, { type: 'set_city_plan', cities: [{ city: 'Kyoto', nights: 3 }, { city: 'Tokyo', nights: 3 }] });
+  assertGood(asakusa, r, snap);
+  const tokyo = r.package.plan.find((p) => p.city === 'Tokyo');
+  assert.equal(tokyo.hotel_id, 'HTL-TYO-003', 'Tokyo keeps Asakusa River Hotel (not the cheapest Tokyo hotel)');
+  assert.equal(tokyo.room_id, 'RM-TYO-003-C');
+  assert.ok(r.warnings.includes('Kept Asakusa River Hotel in Tokyo.'));
+  assert.equal(r.package.metrics.avg_stars, starsByHand(r.package));
+  assert.equal(starsLine(r), `Average hotel stars ${asakusa.metrics.avg_stars.toFixed(2)} → ${r.package.metrics.avg_stars.toFixed(2)}.`);
+});
+
+test('set_city_plan says why the average did not move (UAE: cheapest hotels are 2★ in both cities)', () => {
+  const pkg = buildPackages({ ...MENON, country: 'United Arab Emirates' }).packages[0];
+  assert.equal(pkg.metrics.avg_stars, 2);
+  for (const o of getOptions(pkg, { kind: 'city_plan' }).filter((x) => x.valid && !x.detail.current)) {
+    const r = applyChange(pkg, { type: 'set_city_plan', cities: o.detail.cities });
+    assert.equal(r.package.metrics.avg_stars, 2, o.id);
+    assert.match(starsLine(r), /^Average hotel stars stay at 2\.00: .+ in (Dubai|Abu Dhabi) \(2★\)/, o.id);
+    for (const p of r.package.plan) assert.ok(starsLine(r).includes(`in ${p.city} (`), `${o.id} names ${p.city}`);
+  }
+});
+
+test('set_city_plan picks another hotel when the kept one has no rooms on the new nights', () => {
+  const asakusa = applyChange(base(), { type: 'swap_hotel', city: 'Tokyo', hotel_id: 'HTL-TYO-003', room_id: 'RM-TYO-003-C' }).package;
+  const night = '2027-04-14'; // a Tokyo night in Kyoto 3 → Tokyo 3
+  const ctx = { booked: { flights: {}, rooms: { [`RM-TYO-003-C|${night}`]: roomsLeft('RM-TYO-003-C', night) } } };
+  const snap = JSON.stringify(asakusa);
+  const r = applyChange(asakusa, { type: 'set_city_plan', cities: [{ city: 'Kyoto', nights: 3 }, { city: 'Tokyo', nights: 3 }] }, ctx);
+  assert.equal(r.ok, true, r.reasons.join(' '));
+  assert.equal(JSON.stringify(asakusa), snap);
+  assert.notEqual(r.package.plan.find((p) => p.city === 'Tokyo').hotel_id, 'HTL-TYO-003');
+  assert.ok(r.warnings.some((w) => w.startsWith(`Couldn't keep Asakusa River Hotel in Tokyo: no Family Room free on ${night}`)));
+  assert.deepEqual(validatePackage(r.package, ctx), []);
 });
 
 test('set_city_plan refusals: one-night city, wrong total, unknown city', () => {
