@@ -165,6 +165,12 @@ Re-checks every rule of problem §4 (and totals). Empty array = correct.
 - `ok:false` → `package` is the **unchanged** input, `reasons[]` says why (refused change).
 - `ok:true` → new package (input not mutated), fully valid; `warnings[]` lists other parts fixed automatically (G1),
   e.g. "Airport transfer re-timed to 14:10 after flight change".
+  It also has a line for every hotel whose arrival or departure time, or the hotel itself, changed. That line is
+  either the check-in/check-out problem ("Check-in at X is from 15:00; you arrive at 12:40 …", "Check-out at X is
+  by 11:00; your airport transfer pickup is at 18:10 …", after-midnight arrival) or that the times fit, prefixed
+  with "Fixed: " when the problem was there before. Hotel check-in/out times never cause a refusal (display-only).
+- Hotel items' `warnings[]` (DATA_DICTIONARY §4) hold the current check-in/check-out problems of that stay, in every
+  package (built or changed). They may be non-empty; `exportTrip` keeps them.
 - `delta_inr` = new total − old total.
 
 ### `parseRequest(text) -> { fields, missing, notes }`

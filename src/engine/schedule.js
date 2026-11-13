@@ -1,5 +1,5 @@
 // Timing rules (problem §4): airport pickups (≥60 min after landing, at the airport ≥180 min before departure,
-// pickup inside service hours), intercity departures on the frequency grid, and attraction visits per day.
+// pickup inside service hours), intercity departures, attraction visits per day, and hotel check-in/out timing (G1).
 import { attractionsInCity } from './catalog.js';
 import { toMinutes, inWindow, addMinutes, weekday } from './time.js';
 import { attractionPrice } from './pricing.js';
@@ -116,4 +116,61 @@ export function planAttractions(days, adults, children) {
   for (const day of days) place(day, true);
   visits.sort((x, y) => x.start.localeCompare(y.start));
   return { visits, failedDate: null };
+}
+
+// ---- hotel check-in / check-out timing (G1; catalog times are display-only, so these are warnings) ----
+
+const legEnd = (leg) => leg.end ?? addMinutes(leg.start, leg.duration ?? leg.t.duration_minutes);
+const hm = (minutes) => (minutes >= 60 ? `${Math.floor(minutes / 60)} h${minutes % 60 ? ` ${minutes % 60} min` : ''}` : `${minutes} min`);
+
+/**
+ * When the traveler reaches and leaves each hotel, against its check_in_from / check_out_until:
+ * [{ city, hotel, dateIn, reach, dateOut, leave, leaveBy, early, overnight, late }] with reach/leave
+ * "YYYY-MM-DDTHH:MM". early = before check-in time; overnight = after midnight (the day after check-in);
+ * late = pickup after check-out time.
+ */
+export function stayTimes(stays, moves) {
+  return stays.map((s, i) => {
+    const reach = legEnd(i === 0 ? s.arrive : moves[i - 1]);
+    const last = i === stays.length - 1;
+    const leave = last ? s.depart.start : moves[i].start;
+    return {
+      city: s.city, hotel: s.hotel, dateIn: s.checkIn, reach, dateOut: s.checkOut, leave,
+      leaveBy: last ? 'airport transfer' : `transfer to ${moves[i].t.to_city}`,
+      early: reach < `${s.checkIn}T${s.hotel.check_in_from}`,
+      overnight: reach.slice(0, 10) > s.checkIn,
+      late: leave > `${s.checkOut}T${s.hotel.check_out_until}`,
+    };
+  });
+}
+
+/** Is the arrival ('in') or departure ('out') side of this stay a problem? */
+export const stayProblem = (st, which) => (which === 'in' ? st.early || st.overnight : st.late);
+
+/** Problem lines for one stay, for 'in', 'out' or both sides; [] when the times fit the hotel's. */
+export function stayTimeText(st, which) {
+  const out = [];
+  const { name, check_in_from: inFrom, check_out_until: outBy } = st.hotel;
+  const at = (dt) => `${clock(dt)} on ${dt.slice(0, 10)}`;
+  if (which !== 'out' && st.early) {
+    out.push(`Check-in at ${name} is from ${inFrom}; you arrive at ${at(st.reach)} ` +
+      `(${hm(toMinutes(inFrom) - toMinutes(clock(st.reach)))} early). Ask for early check-in or leave your bags at the desk.`);
+  }
+  if (which !== 'out' && st.overnight) {
+    out.push(`You reach ${name} at ${at(st.reach)}, after midnight on your check-in day ${st.dateIn}. ` +
+      'Tell the hotel you will arrive late so the room is held.');
+  }
+  if (which !== 'in' && st.late) {
+    out.push(`Check-out at ${name} is by ${outBy}; your ${st.leaveBy} pickup is at ${at(st.leave)}. ` +
+      'Ask for late check-out or store your luggage.');
+  }
+  return out;
+}
+
+/** The "it fits" line: "You reach X at 16:10 on …, after its 15:00 check-in." / pickup before check-out. */
+export function stayTimeOk(st, which) {
+  const { name, check_in_from: inFrom, check_out_until: outBy } = st.hotel;
+  return which === 'in'
+    ? `You reach ${name} at ${clock(st.reach)} on ${st.reach.slice(0, 10)}, after its ${inFrom} check-in.`
+    : `Pickup from ${name} at ${clock(st.leave)} on ${st.leave.slice(0, 10)}, before its ${outBy} check-out.`;
 }

@@ -12,7 +12,7 @@ import { validateRequest, windowReason } from './request.js';
 import { overBudgetSuggestions } from './suggest.js';
 import { cityPlans, flightPairs, outboundFlights, returnFlights } from './plans.js';
 import {
-  arrivalPickup, departurePickup, intercityDeparture, planAttractions, GAP_MINUTES,
+  arrivalPickup, departurePickup, intercityDeparture, planAttractions, stayTimes, stayTimeText, GAP_MINUTES,
 } from './schedule.js';
 
 // TODO(Person B, validate.js): this hook wires validatePackage in automatically as soon as
@@ -193,12 +193,13 @@ function flightItem(c, f, city) {
 export function assemble(c, plan, out, ret, stays, moves, visits) {
   const first = stays[0];
   const lastStay = stays.at(-1);
+  const timing = stayTimes(stays, moves); // G1: early check-in / late check-out notes go on the hotel items
   const items = [
     flightItem(c, out, first.city),
     transferItem(c, first.arrive, first.city),
     ...stays.map((s, i) => item('hotel', {
       name: s.hotel.name, city: s.city, catalog_id: s.hotel.hotel_id, room_id: s.room.room_id,
-      start: s.checkIn, end: s.checkOut, quantity: s.k, price_inr: s.price,
+      start: s.checkIn, end: s.checkOut, quantity: s.k, price_inr: s.price, warnings: stayTimeText(timing[i]),
     }, i === 0 ? first.arrive.end : moves[i - 1].end)),
     ...moves.map((m) => transferItem(c, m, m.t.to_city)),
     ...visits.map((v) => item('attraction', {

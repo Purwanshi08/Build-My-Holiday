@@ -186,3 +186,15 @@
   named, the one after "from" wins. Two countries named means `country` is missing. Lakh/crore/k amounts are scaled
   with integer arithmetic (money is integer INR). Why: a quick text box for the request form. The parser only
   fills fields; `buildPackages` still validates everything.
+- **2026-11-13 — G1: changes fix or warn about the bookings they affect.** Hotel `check_in_from` /
+  `check_out_until` are display-only in the spec, so they only ever produce warnings, never refusals. Every hotel
+  item carries the current problems of its stay in `warnings`: arriving before check-in, arriving after midnight,
+  or a pickup after check-out. `applyChange` adds one line per stay whose hotel, arrival or departure time changed:
+  the problem, or that it fits, with "Fixed: " when a problem went away. So a flight change always reports the
+  check-in (outbound) or check-out (return) it affects, and attraction-only changes add no hotel lines. Attraction
+  conflicts: `refitVisits` drops an inherited second copy of an attraction ("booked twice"). It pushes an
+  overlapping visit only as far as needed (30-min gap preferred, else back to back) and names the visit it avoids.
+  `add_attraction` says which visit the new one goes after or before. Why: problem G1 ("a flight change should pop
+  up about the accommodation check in times"). Before this, nothing mentioned the hotel times, and a visit pushed
+  by another visit was wrongly reported as "to start after the traveler arrives". CONTRACT §4 `applyChange` notes
+  the new warning lines and non-empty hotel item `warnings`. This is additive; Person B to acknowledge.

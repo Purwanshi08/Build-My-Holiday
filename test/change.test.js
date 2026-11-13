@@ -1,5 +1,5 @@
 // Tests for src/engine/change.js: each applyChange type (with refusals that leave the input untouched), knock-on
-// fixes (transfers, attraction times), over-budget warnings, stable ids, and getOptions for every kind.
+// fixes and G1 warnings (transfers, attraction times and overlaps, hotel check-in/out), stable ids, and getOptions.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildPackages } from '../src/engine/build.js';
@@ -358,4 +358,112 @@ test('getOptions city_plan: every legal plan, current at ₹0, deltas match a re
   assert.equal(current.detail.avg_stars, pkg.metrics.avg_stars);
   assertOptionsMatch(pkg, opts.slice(0, 6), (o) => ({ type: 'set_city_plan', cities: o.detail.cities }));
   assert.deepEqual(getOptions(pkg, { kind: 'nope' }), []);
+});
+
+// ---- G1: knock-on effects are fixed or warned about ----
+
+const COUPLE = (o) => ({
+  departureAirport: 'BLR', country: 'Japan', startDate: '2027-04-10', nights: 5, adults: 2, childAges: [],
+  budgetInr: 9000000, ...o,
+});
+const hotelItem = (pkg) => pkg.items.find((i) => i.type === 'hotel');
+const timingLines = (r) => r.warnings.filter((w) => /check-in|check-out/i.test(w));
+
+test('G1: hotel items carry check-in problems in every package (display-only times → warnings)', () => {
+  const pkg = base(); // FL-401 lands 10:30, the bus reaches Ueno Garden Inn at 13:00; check-in from 15:00
+  assert.match(hotelItem(pkg).warnings.join(' '), /^Check-in at Ueno Garden Inn is from 15:00; you arrive at 13:00 on 2027-04-10 \(2 h early\)/);
+  assert.deepEqual(validatePackage(pkg), [], 'item warnings do not break validation');
+});
+
+test('G1: a flight change pops up about the hotel check-in, and says when the problem is fixed', () => {
+  const before = base();
+  const late = applyChange(before, { type: 'swap_flight', direction: 'outbound', flight_id: 'FL-405' });
+  assertGood(before, late, JSON.stringify(before));
+  assert.ok(late.warnings.some((w) => /^Fixed: You reach Ueno Garden Inn at \d\d:\d\d on 2027-04-10, after its 15:00 check-in\.$/.test(w)),
+    late.warnings.join('\n'));
+  assert.deepEqual(hotelItem(late.package).warnings, []);
+
+  const back = applyChange(late.package, { type: 'swap_flight', direction: 'outbound', flight_id: 'FL-401' });
+  assert.equal(back.ok, true, back.reasons.join(' '));
+  const line = back.warnings.find((w) => /^Check-in at Ueno Garden Inn is from 15:00; you arrive at \d\d:\d\d on 2027-04-10 \(/.test(w));
+  assert.ok(line, back.warnings.join('\n'));
+  assert.ok(hotelItem(back.package).warnings.includes(line), 'the same note stays on the hotel item');
+  assert.ok(!back.warnings.some((w) => /check-out/.test(w)), 'the return side did not change, so no check-out line');
+});
+
+test('G1: arriving after midnight warns that the room must be held', () => {
+  const before = buildPackages(COUPLE()).packages[0];
+  const r = applyChange(before, { type: 'swap_flight', direction: 'outbound', flight_id: 'FL-405' });
+  assert.equal(r.ok, true, r.reasons.join(' '));
+  assert.ok(r.warnings.some((w) => /on 2027-04-11, after midnight on your check-in day 2027-04-10/.test(w)), r.warnings.join('\n'));
+});
+
+test('G1: a later return flight warns about the hotel check-out time', () => {
+  const before = buildPackages(COUPLE({ country: 'United Arab Emirates', startDate: '2027-04-02' })).packages[0];
+  const r = applyChange(before, { type: 'swap_flight', direction: 'return', flight_id: 'FL-1120' });
+  assertGood(before, r, JSON.stringify(before));
+  const line = r.warnings.find((w) => /^Check-out at .* is by \d\d:\d\d; your airport transfer pickup is at \d\d:\d\d on 2027-04-07\./.test(w));
+  assert.ok(line, r.warnings.join('\n'));
+  assert.ok(r.package.items.filter((i) => i.type === 'hotel').at(-1).warnings.includes(line));
+});
+
+test('G1: swap_hotel reports the new hotel\'s check-in and check-out against the transfers', () => {
+  const before = base();
+  const opt = getOptions(before, { kind: 'hotel', city: 'Tokyo' }).find((o) => o.valid && !o.detail.current);
+  const r = applyChange(before, { type: 'swap_hotel', city: 'Tokyo', hotel_id: opt.detail.hotel_id, room_id: opt.detail.room_id });
+  assertGood(before, r, JSON.stringify(before));
+  const h = hotelById.get(opt.detail.hotel_id);
+  const lines = timingLines(r);
+  assert.equal(lines.length, 2, lines.join('\n'));
+  assert.ok(lines.every((w) => w.includes(h.name)));
+  assert.ok(lines.some((w) => w.includes(h.check_in_from)) && lines.some((w) => w.includes(h.check_out_until)));
+});
+
+test('G1: a later arrival cascades visits without overlap, and says which visit caused each move', () => {
+  let pkg = buildPackages(COUPLE()).packages[0]; // lands at HND, two visits on the arrival day
+  for (const o of getOptions(pkg, { kind: 'attraction', date: '2027-04-10' })) {
+    if (visitsOn(pkg, '2027-04-10').length >= 2) break;
+    if (!o.valid) continue;
+    const a = applyChange(pkg, { type: 'add_attraction', attraction_id: o.id, date: '2027-04-10' });
+    if (a.ok) pkg = a.package;
+  }
+  const [first, second] = visitsOn(pkg, '2027-04-10');
+  assert.ok(second, 'two visits on the arrival day');
+  const r = applyChange(pkg, { type: 'swap_flight', direction: 'outbound', flight_id: 'FL-401' }); // NRT, later
+  assertGood(pkg, r, JSON.stringify(pkg));
+  assert.ok(r.warnings.some((w) => w.startsWith(`"${first.name}" on 2027-04-10 moved to`) && w.endsWith('to start after the traveler arrives.')),
+    r.warnings.join('\n'));
+  assert.ok(r.warnings.some((w) => w.startsWith(`"${second.name}" on 2027-04-10 moved to`) && w.includes(`so it does not overlap "${first.name}"`)),
+    r.warnings.join('\n'));
+  const [a, b] = visitsOn(r.package, '2027-04-10');
+  assert.ok(a.end <= b.start, 'no overlap after the cascade');
+  assert.ok(r.warnings.some((w) => /^Check-in at /.test(w)), 'and the check-in pop-up');
+});
+
+test('G1: an inherited double booking of an attraction is removed with a warning', () => {
+  const before = base();
+  const dup = structuredClone(before);
+  const visit = dup.items.find((i) => i.type === 'attraction');
+  dup.items.push({ ...visit, item_id: 'i99' });
+  dup.total_inr += visit.price_inr;
+  const r = applyChange(dup, { type: 'swap_flight', direction: 'return', flight_id: 'FL-412' });
+  assert.equal(r.ok, true, r.reasons.join(' '));
+  assert.ok(r.warnings.includes(`"${visit.name}" on ${visit.start.slice(0, 10)} was removed: it was booked twice.`), r.warnings.join('\n'));
+  assert.equal(r.package.items.filter((i) => i.catalog_id === visit.catalog_id).length, 1);
+  assert.deepEqual(validatePackage(r.package), []);
+});
+
+test('G1: add_attraction says where the visit went next to the others; attraction changes add no hotel lines', () => {
+  const before = base();
+  const date = '2027-04-12'; // one visit planned; the 11th already has two
+  const opt = getOptions(before, { kind: 'attraction', date }).find((o) => o.valid);
+  const r = applyChange(before, { type: 'add_attraction', attraction_id: opt.id, date });
+  assertGood(before, r, JSON.stringify(before));
+  assert.ok(r.warnings.some((w) => new RegExp(`^"${opt.label}" planned at \\d\\d:\\d\\d–\\d\\d:\\d\\d on ${date}, (after|before) "`).test(w)),
+    r.warnings.join('\n'));
+  assert.deepEqual(timingLines(r), []);
+  const added = r.package.items.find((i) => i.catalog_id === opt.id);
+  const back = applyChange(r.package, { type: 'remove_attraction', item_id: added.item_id });
+  assert.equal(back.ok, true, back.reasons.join(' '));
+  assert.deepEqual(timingLines(back), []);
 });

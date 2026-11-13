@@ -9,7 +9,8 @@ import { hotelPrice, minRooms } from './pricing.js';
 import { airportLeg, attractionDays, buildCandidate, local } from './build.js';
 import { cityPlans, flightPairs, seatsFree } from './plans.js';
 import {
-  arrivalPickup, departurePickup, fitVisit, openOn, optionsFor, DAY_START, DAY_END, GAP_MINUTES,
+  arrivalPickup, departurePickup, fitVisit, openOn, optionsFor, stayTimes, stayTimeText, stayTimeOk, stayProblem,
+  DAY_START, DAY_END, GAP_MINUTES,
 } from './schedule.js';
 import { attractionPrice } from './pricing.js';
 import { decompose, recompose, carryOver } from './parts.js';
@@ -70,22 +71,39 @@ function refitVisits(parts, warnings) {
     const a = v.attraction;
     const day = days.get(v.date);
     let why = null;
-    if (!day) why = 'the traveler is not in the city with free time that day';
+    if (kept.some((k) => k.attraction.attraction_id === a.attraction_id)) why = 'it was booked twice';
+    else if (!day) why = 'the traveler is not in the city with free time that day';
     else if (day.city !== a.city) why = `the night of ${v.date} is now in ${day.city}`;
     else if (!openOn(a, v.date)) why = `it is closed that day`;
     if (!why) {
+      // Push later only as far as needed: after the traveler arrives, and after the previous visit when they
+      // overlap (30-min gap preferred, else back to back).
       const prev = kept.filter((k) => k.date === v.date).at(-1);
-      const lower = Math.max(minutesOn(v.date, v.start), day.earliest ?? 0, prev ? minutesOn(v.date, prev.end) : 0);
-      const slot = fitVisit(a, lower, 1440);
+      const own = minutesOn(v.date, v.start);
+      const arrive = day.earliest ?? 0;
+      const prevEnd = prev ? minutesOn(v.date, prev.end) : 0;
+      const clash = prev && own < prevEnd;
+      let slot = null;
+      let gapUsed = 0;
+      for (const gap of [GAP_MINUTES, 0]) {
+        slot = fitVisit(a, Math.max(own, arrive, clash ? prevEnd + gap : 0), 1440);
+        gapUsed = gap;
+        if (slot) break;
+      }
       if (slot) {
         const start = at(v.date, slot.start);
         if (start !== v.start) {
-          warnings.push(`"${a.name}" on ${v.date} moved to ${clock(start)} (was ${clock(v.start)}) to start after the traveler arrives.`);
+          const cause = clash && prevEnd + gapUsed >= arrive
+            ? `so it does not overlap "${prev.attraction.name}" (${clock(prev.start)}–${clock(prev.end)})`
+            : 'to start after the traveler arrives';
+          warnings.push(`"${a.name}" on ${v.date} moved to ${clock(start)} (was ${clock(v.start)}) ${cause}.`);
         }
         kept.push({ ...v, start, end: at(v.date, slot.end) });
         continue;
       }
-      why = 'it no longer fits inside its opening hours after the traveler arrives';
+      why = clash
+        ? `it no longer fits inside its opening hours after "${prev.attraction.name}"`
+        : 'it no longer fits inside its opening hours after the traveler arrives';
     }
     warnings.push(`"${a.name}" on ${v.date} was removed: ${why}.`);
   }
@@ -170,6 +188,25 @@ function keepHotels(built, oldStays, ctx) {
     return { pkg: built, notes: notes.filter((n) => !n.startsWith('Kept ')) }; // could not keep them after all
   }
   return { pkg: recompose(built, parts), notes };
+}
+
+/**
+ * G1 pop-up lines about hotel check-in/check-out times: for every stay whose hotel, arrival or departure time
+ * changed, the problem (early check-in / late check-out) or that it fits ("Fixed: …" when it used not to).
+ */
+function hotelTimingLines(before, after) {
+  const old = new Map(before.map((s) => [s.city, s]));
+  const lines = [];
+  for (const s of after) {
+    const o = old.get(s.city);
+    const sameHotel = o?.hotel.hotel_id === s.hotel.hotel_id;
+    for (const [which, changed] of [['in', !sameHotel || o.reach !== s.reach], ['out', !sameHotel || o.leave !== s.leave]]) {
+      if (!changed) continue;
+      if (stayProblem(s, which)) lines.push(...stayTimeText(s, which));
+      else lines.push(`${o && stayProblem(o, which) ? 'Fixed: ' : ''}${stayTimeOk(s, which)}`);
+    }
+  }
+  return lines;
 }
 
 /** "Average hotel stars 3.00 → 3.50." or, when unchanged, why: each city's hotel and its stars. */
@@ -278,11 +315,20 @@ const HANDLERS = {
       return { refuse: [`No free time for ${a.name} on ${ch.date} inside its opening hours ` +
         `(${a.open_from}–${a.open_until}, ${a.visit_minutes} min) without overlapping other visits.`] };
     }
-    parts.visits.push({
-      attraction: a, date: ch.date, price: attractionPrice(a, c.adults, c.children),
-      start: at(ch.date, slot.start), end: at(ch.date, slot.end),
-    });
-    return { touched: ['visits'] };
+    const start = at(ch.date, slot.start);
+    const end = at(ch.date, slot.end);
+    parts.visits.push({ attraction: a, date: ch.date, price: attractionPrice(a, c.adults, c.children), start, end });
+    // Say where it went relative to the visits already planned that day (no silent double booking of time).
+    const span = (v) => `"${v.attraction.name}" (${clock(v.start)}–${clock(v.end)})`;
+    const sorted = [...dayVisits].sort((x, y) => x.start.localeCompare(y.start));
+    const before = sorted.filter((v) => v.end <= start).at(-1);
+    const after = sorted.find((v) => v.start >= end);
+    const warnings = [];
+    if (before || after) {
+      warnings.push(`"${a.name}" planned at ${clock(start)}–${clock(end)} on ${ch.date}, ` +
+        `${before ? `after ${span(before)}` : `before ${span(after)}`}.`);
+    }
+    return { touched: ['visits'], warnings };
   },
 
   remove_attraction(parts, ch, pkg) {
@@ -360,6 +406,7 @@ export function applyChange(pkg, change, ctx) {
     return refuse([`This package cannot be changed: ${e.message}.`]);
   }
 
+  const timesBefore = stayTimes(parts.stays, parts.moves); // before the handler edits parts
   const r = handler(parts, change, pkg);
   if (r.refuse) return refuse(r.refuse);
   const warnings = [...(r.warnings ?? [])];
@@ -380,6 +427,8 @@ export function applyChange(pkg, change, ctx) {
 
   const problems = validatePackage(next, ctx);
   if (problems.length) return refuse(problems);
+  const after = decompose(next, ctx);
+  warnings.push(...hotelTimingLines(timesBefore, stayTimes(after.stays, after.moves)));
   if (next.total_inr > next.budget_inr) {
     warnings.push(`The new total ${inr(next.total_inr)} is ${inr(next.total_inr - next.budget_inr)} over the budget of ${inr(next.budget_inr)}.`);
   }
